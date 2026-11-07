@@ -6,6 +6,21 @@ import { supabase } from '../lib/supabase';
 const RECEPCIONISTAS = ['Marcela', 'Sueli', 'Patrícia', 'Isabela'];
 // Associação temporária do evento de teste. Não equivale a autenticação.
 const EVENTOS_TESTE = { '01/11/2026': '017dd324-dbba-4674-ba24-b7ed7e5cfaa0' };
+// Aceita apenas numeros no teclado do celular e insere barras automaticamente.
+function formatarDataEvento(valor) {
+  const numeros = String(valor).replace(/\D/g, '').slice(0, 8);
+  if (numeros.length <= 2) return numeros;
+  if (numeros.length <= 4) return `${numeros.slice(0, 2)}/${numeros.slice(2)}`;
+  return `${numeros.slice(0, 2)}/${numeros.slice(2, 4)}/${numeros.slice(4)}`;
+}
+
+function dataValida(valor) {
+  if (!/^\d{2}\/\d{2}\/\d{4}$/.test(valor)) return false;
+  const [dia, mes, ano] = valor.split('/').map(Number);
+  const data = new Date(ano, mes - 1, dia);
+  return data.getFullYear() === ano && data.getMonth() === mes - 1 && data.getDate() === dia;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function Home() {
@@ -25,7 +40,11 @@ export default function Home() {
 
   function entrar(evento) {
     evento.preventDefault();
-    const codigo = codigoEvento.trim();
+    const codigo = formatarDataEvento(codigoEvento.trim());
+    if (!dataValida(codigo)) {
+      setAcessoMensagem('Informe uma data válida com 8 números. Exemplo: 01112026.');
+      return;
+    }
     if (!RECEPCIONISTAS.includes(recepcionista)) {
       setAcessoMensagem('Escolha uma recepcionista da equipe.');
       return;
@@ -152,7 +171,7 @@ export default function Home() {
           <form onSubmit={entrar} style={{background:'white',marginTop:18,padding:22,borderRadius:20,border:'1px solid var(--borda)',display:'grid',gap:16}}>
             <div style={{display:'grid',gap:7}}>
               <label htmlFor="codigo-evento" style={{fontWeight:700,color:'var(--ameixa)'}}>Código do evento</label>
-              <input id="codigo-evento" value={codigoEvento} onChange={e=>setCodigoEvento(e.target.value)} placeholder="DD/MM/AAAA" inputMode="numeric" autoComplete="off" required />
+              <input id="codigo-evento" value={codigoEvento} onChange={e=>{setCodigoEvento(formatarDataEvento(e.target.value));setAcessoMensagem('');}} placeholder="DD/MM/AAAA" inputMode="numeric" maxLength={10} autoComplete="off" required />
               <small style={{color:'var(--suave)'}}>Para o evento de teste: 01/11/2026</small>
             </div>
             <div style={{display:'grid',gap:7}}>
