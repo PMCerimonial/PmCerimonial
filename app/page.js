@@ -447,7 +447,7 @@ export default function Home() {
                           style={{border:'1px solid var(--borda)',borderRadius:10,padding:'9px 12px',background:'#fff',color:'var(--vinho)',fontSize:12,fontWeight:600,cursor:'pointer',width:'100%'}}>
                           {ehCrianca(c) ? 'Alterar idade da criança' : 'É criança? Informar idade'}
                         </button>
-                        {alterandoMesaId === c.id ? (
+                        {filtro === 'mesas' && (alterandoMesaId === c.id ? (
                           <div style={{display:'grid',gap:8,padding:10,background:'#faf5f7',borderRadius:12}}>
                             <label htmlFor={'nova-mesa-'+c.id} style={{fontSize:13,fontWeight:700}}>Nova mesa ou setor</label>
                             <input id={'nova-mesa-'+c.id} value={novaMesa}
@@ -465,7 +465,7 @@ export default function Home() {
                             style={{border:'1px solid var(--borda)',borderRadius:10,padding:'9px 12px',background:'#fff',color:'var(--vinho)',fontSize:12,fontWeight:600,cursor:'pointer',width:'100%'}}>
                             Alterar mesa
                           </button>
-                        )}
+                        ))}
                       </div>
                     </article>
                   );
