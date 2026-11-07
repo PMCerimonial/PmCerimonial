@@ -21,6 +21,15 @@ function dataValida(valor) {
   return data.getFullYear() === ano && data.getMonth() === mes - 1 && data.getDate() === dia;
 }
 
+function apresentarMesa(valor) {
+  const texto = String(valor ?? '').trim();
+  if (!texto) return 'Mesa a definir';
+  if (/^\d+$/.test(texto)) return `Mesa ${texto.padStart(2, '0')}`;
+  if (/^mesa\s+/i.test(texto)) return texto;
+  if (/^setor\s+/i.test(texto)) return texto;
+  return texto;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function Home() {
@@ -68,10 +77,10 @@ export default function Home() {
     setAviso('');
   }
 
-  async function carregar(id) {
+  async function carregar(id, preservarErro = false) {
     if (!UUID_RE.test(id)) return;
     setCarregando(true);
-    setErro('');
+    if (!preservarErro) setErro('');
     setAviso('');
     try {
       const [resultadoConvidados, resultadoCheckins] = await Promise.all([
@@ -112,8 +121,8 @@ export default function Home() {
     // Evita requisições enquanto o identificador está sendo digitado.
     const canal = supabase
       .channel(`recepcao-${eventoId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'convidados', filter: `evento_id=eq.${eventoId}` }, () => { if (ativo) carregar(eventoId); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'checkins', filter: `evento_id=eq.${eventoId}` }, () => { if (ativo) carregar(eventoId); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'convidados', filter: `evento_id=eq.${eventoId}` }, () => { if (ativo) carregar(eventoId, true); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'checkins', filter: `evento_id=eq.${eventoId}` }, () => { if (ativo) carregar(eventoId, true); })
       .subscribe();
     carregar(eventoId);
     return () => { ativo = false; supabase.removeChannel(canal); };
@@ -135,10 +144,23 @@ export default function Home() {
       const presente = presentesIds.has(convidado.id);
       const operacao = presente
         ? supabase.from('checkins').delete().eq('evento_id', eventoId).eq('convidado_id', convidado.id)
-        : supabase.from('checkins').insert({ evento_id: eventoId, convidado_id: convidado.id, origem: 'aplicativo' });
+        : supabase.from('checkins').insert({ evento_id: eventoId, convidado_id: convidado.id });
       const { error } = await operacao;
-      if (error) setErro(`Não foi possível registrar presença: ${error.message}`);
+      if (error) {
+        // Nao apagar este aviso ao atualizar a lista: ele informa a causa da falha.
+        setErro(`Check-in não realizado: ${error.message}${error.code ? ` (código ${error.code})` : ''}`);
+        return;
+      }
       await carregar(eventoId);
+      // Confirmar pelo banco, sem declarar sucesso apenas por ter clicado.
+      const { data: confirmacao, error: erroConfirmacao } = await supabase
+        .from('checkins').select('id').eq('evento_id', eventoId)
+        .eq('convidado_id', convidado.id).limit(1);
+      if (erroConfirmacao) {
+        setErro(`Não foi possível confirmar o check-in: ${erroConfirmacao.message}`);
+      } else if (Boolean(confirmacao?.length) === presente) {
+        setErro('O banco não confirmou a alteração da presença. Tente atualizar a página e confira o registro antes de tentar novamente.');
+      }
     } catch (e) {
       setErro(`Falha no check-in: ${e?.message || 'erro de conexão'}`);
     } finally {
@@ -190,7 +212,7 @@ export default function Home() {
           <header>
             <div>
               <span className="eyebrow">PM CERIMONIAL</span>
-              <h1>Recepção de convidados</h1>
+              <h1>{eventoId === EVENTOS_TESTE['01/11/2026'] ? 'Allan & Luciana' : 'Recepção de convidados'}</h1>
               <p>Evento {codigoEvento} · {recepcionista}</p>
             </div>
             <button onClick={sair} style={{border:'1px solid #f0d8e1',borderRadius:12,background:'transparent',color:'white',padding:'10px 13px',cursor:'pointer'}}>Trocar evento</button>
@@ -217,7 +239,7 @@ export default function Home() {
               const presente = presentesIds.has(c.id);
               return (
                 <article key={c.id} className={presente ? 'checked' : ''}>
-                  <div><h2>{c.nome}</h2><p>{c.mesa || 'Mesa a definir'}{c.idade != null ? ` · ${c.idade} anos` : ''}</p></div>
+                  <div><h2>{c.nome}</h2><p>{apresentarMesa(c.mesa)}{c.idade != null ? ` · ${c.idade} anos` : ''}</p></div>
                   <button disabled={ocupado || carregando} onClick={() => check(c)}>{presente ? '✓ Presente' : 'Fazer check-in'}</button>
                 </article>
               );
