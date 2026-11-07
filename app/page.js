@@ -139,6 +139,12 @@ export default function Home() {
     return encontrado && (filtro === 'todos' || (filtro === 'presentes' && presente) || (filtro === 'pendentes' && !presente));
   });
   const presentes = convidados.filter(c => presentesIds.has(c.id)).length;
+  // Apenas registros com idade infantil confirmada são contabilizados como crianças.
+  const ehCrianca = (c) => c.idade !== null && c.idade !== undefined && c.idade !== '' && Number.isInteger(Number(c.idade)) && Number(c.idade) >= 0 && Number(c.idade) < 18;
+  const criancas = convidados.filter(ehCrianca);
+  const criancasPresentes = criancas.filter(c => presentesIds.has(c.id)).length;
+  const adultosPresentes = presentes - criancasPresentes;
+
 
   async function check(convidado) {
     if (ocupado || !idValido) return;
@@ -167,6 +173,38 @@ export default function Home() {
       }
     } catch (e) {
       setErro(`Falha no check-in: ${e?.message || 'erro de conexão'}`);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function confirmarIdade(convidado) {
+    if (ocupado || !idValido) return;
+    const resposta = window.prompt(`Idade da criança ${convidado.nome} (0 a 17 anos):`, convidado.idade == null ? '' : String(convidado.idade));
+    if (resposta === null) return;
+    const texto = resposta.trim();
+    if (!/^(?:[0-9]|1[0-7])$/.test(texto)) {
+      setErro('Informe a idade completa da criança, de 0 a 17 anos.');
+      return;
+    }
+    setOcupado(true);
+    setErro('');
+    try {
+      const { data, error } = await supabase.from('convidados')
+        .update({ idade: Number(texto) })
+        .eq('evento_id', eventoId)
+        .eq('id', convidado.id)
+        .select('id,idade');
+      if (error) {
+        setErro(`Não foi possível salvar a idade: ${error.message}`);
+      } else if (!data?.length) {
+        setErro('A idade não foi confirmada pelo banco. Verifique a permissão de atualização.');
+      } else {
+        // Confirmação persistida no banco, sem mexer no estado dos check-ins.
+        setConvidados(atual => atual.map(c => c.id === convidado.id ? {...c, idade: data[0].idade} : c));
+      }
+    } catch (e) {
+      setErro(`Não foi possível atualizar a idade: ${e?.message || 'erro de conexão'}`);
     } finally {
       setOcupado(false);
     }
@@ -215,7 +253,7 @@ export default function Home() {
         <>
           <header>
             <div>
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}><span style={{display:"inline-flex",background:"white",borderRadius:12,padding:5,width:65,height:65,alignItems:"center"}}><img src={MONOGRAMA_PM} alt="Monograma pm" style={{width:"100%",height:"auto"}} /></span><span className="eyebrow">PM CERIMONIAL</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}><span style={{display:"inline-flex",background:"white",borderRadius:"50%",padding:6,width:65,height:65,alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}><img src={MONOGRAMA_PM} alt="Monograma pm" style={{width:"100%",height:"100%",objectFit:"contain",borderRadius:"50%"}} /></span><span className="eyebrow">PM CERIMONIAL</span></div>
               <h1>{eventoId === EVENTOS_TESTE['01/11/2026'] ? 'Allan & Luciana' : 'Recepção de convidados'}</h1>
               <p>Evento {codigoEvento} · {recepcionista}</p>
             </div>
@@ -228,6 +266,12 @@ export default function Home() {
             <div><b>{presentes}</b><span>Presentes</span></div>
             <div><b>{convidados.length - presentes}</b><span>Pendentes</span></div>
           </section>
+          <section aria-label="Resumo de crianças" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:8,margin:'-4px 0 16px'}}>
+            <div style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:14,padding:'12px 9px'}}><strong style={{display:'block',fontSize:24,color:'var(--vinho)'}}>{criancas.length}</strong><small style={{color:'var(--suave)'}}>Crianças identificadas</small></div>
+            <div style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:14,padding:'12px 9px'}}><strong style={{display:'block',fontSize:24,color:'var(--vinho)'}}>{criancasPresentes}</strong><small style={{color:'var(--suave)'}}>Crianças presentes</small></div>
+            <div style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:14,padding:'12px 9px'}}><strong style={{display:'block',fontSize:24,color:'var(--vinho)'}}>{adultosPresentes}</strong><small style={{color:'var(--suave)'}}>Presentes sem idade infantil</small></div>
+          </section>
+          <p style={{fontSize:12,color:'var(--suave)',margin:'-7px 0 14px'}}>Crianças identificadas por idade de 0 a 17 anos. Faixas de cobrança do buffet serão configuradas separadamente; “presentes sem idade infantil” inclui convidados ainda não classificados.</p>
           <section className="tools">
             <input aria-label="Pesquisar convidado" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Pesquisar convidado..." />
             <button className="add" onClick={adicionar} disabled={carregando || ocupado}>+ Convidado extra</button>
@@ -243,8 +287,11 @@ export default function Home() {
               const presente = presentesIds.has(c.id);
               return (
                 <article key={c.id} className={presente ? 'checked' : ''}>
-                  <div><h2>{c.nome}</h2><p>{apresentarMesa(c.mesa)}{c.idade != null ? ` · ${c.idade} anos` : ''}</p></div>
-                  <button disabled={ocupado || carregando} onClick={() => check(c)}>{presente ? '✓ Presente' : 'Fazer check-in'}</button>
+                  <div><h2>{c.nome}</h2><p>{apresentarMesa(c.mesa)}{ehCrianca(c) ? ` · Criança · ${c.idade} anos` : ''}</p></div>
+                  <div style={{display:'grid',gap:8,width:'100%'}}>
+                    <button disabled={ocupado || carregando} onClick={() => check(c)}>{presente ? '✓ Presente' : 'Fazer check-in'}</button>
+                    <button type="button" disabled={ocupado || carregando} onClick={() => confirmarIdade(c)} style={{border:'1px solid var(--borda)',borderRadius:10,padding:'9px 12px',background:'#fff',color:'var(--vinho)',fontSize:12,fontWeight:600,cursor:'pointer',width:'100%'}}>{ehCrianca(c) ? 'Alterar idade da criança' : 'É criança? Informar idade'}</button>
+                  </div>
                 </article>
               );
             })}
