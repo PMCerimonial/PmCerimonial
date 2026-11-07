@@ -41,6 +41,9 @@ export default function Home() {
   const [checkins, setCheckins] = useState([]);
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('todos');
+  const [mesaSelecionada, setMesaSelecionada] = useState('');
+  const [alterandoMesaId, setAlterandoMesaId] = useState(null);
+  const [novaMesa, setNovaMesa] = useState('');
   const [recepcionista, setRecepcionista] = useState(RECEPCIONISTAS[0]);
   const [eventoId, setEventoId] = useState('');
   const [codigoEvento, setCodigoEvento] = useState('');
@@ -123,6 +126,8 @@ export default function Home() {
     setCheckins([]);
     setBusca('');
     setFiltro('todos');
+    setMesaSelecionada('');
+    setAlterandoMesaId(null);
     setErro('');
     setAviso('');
   }
@@ -184,6 +189,11 @@ export default function Home() {
     const presente = presentesIds.has(c.id);
     return encontrado && (filtro === 'todos' || (filtro === 'presentes' && presente) || (filtro === 'pendentes' && !presente));
   });
+  const mesas = Array.from(new Set(convidados.map(c => apresentarMesa(c.mesa))))
+    .sort((a, b) => a.localeCompare(b, 'pt-BR', {numeric: true}));
+  const mesaAtual = mesas.includes(mesaSelecionada) ? mesaSelecionada : (mesas[0] || '');
+  const convidadosDaMesa = convidados.filter(c => apresentarMesa(c.mesa) === mesaAtual);
+  const presentesDaMesa = convidadosDaMesa.filter(c => presentesIds.has(c.id)).length;
   const presentes = convidados.filter(c => presentesIds.has(c.id)).length;
   // Apenas registros com idade infantil confirmada são contabilizados como crianças.
   const ehCrianca = (c) => c.idade !== null && c.idade !== undefined && c.idade !== '' && Number.isInteger(Number(c.idade)) && Number(c.idade) >= 0 && Number(c.idade) < 18;
@@ -260,6 +270,44 @@ export default function Home() {
     }
   }
 
+  function abrirAlteracaoMesa(convidado) {
+    setAlterandoMesaId(convidado.id);
+    setNovaMesa(String(convidado.mesa ?? ''));
+    setErro('');
+  }
+
+  async function salvarMesa(convidado) {
+    const destino = novaMesa.trim();
+    if (!destino) {
+      setErro('Informe a nova mesa ou setor.');
+      return;
+    }
+    if (ocupado) return;
+    setOcupado(true);
+    setErro('');
+    try {
+      // Grava somente a mesa: idade e presença permanecem intactas.
+      const { data, error } = await supabase.from('convidados')
+        .update({mesa: destino})
+        .eq('evento_id', eventoId)
+        .eq('id', convidado.id)
+        .select('id,mesa');
+      if (error) {
+        setErro(`Não foi possível alterar a mesa: ${error.message}`);
+      } else if (!data?.length) {
+        setErro('O banco não confirmou a mudança de mesa. Verifique a permissão de atualização.');
+      } else {
+        setConvidados(atual => atual.map(c =>
+          c.id === convidado.id ? {...c, mesa: data[0].mesa} : c));
+        setAlterandoMesaId(null);
+      }
+    } catch (e) {
+      setErro(`Falha ao mudar a mesa: ${e?.message || 'erro de conexão'}`);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   async function adicionar() {
     if (!idValido) return;
     const nome = window.prompt('Nome do convidado extra:');
@@ -320,6 +368,16 @@ export default function Home() {
             <span style={{color:'var(--ameixa)',fontWeight:700}}>Crianças presentes</span>
             <strong style={{fontSize:28,color:'var(--vinho)'}}>{criancasPresentes}</strong>
           </section>
+          <nav aria-label="Abas do evento" style={{display:'grid',gridTemplateColumns:'repeat(5,minmax(0,1fr))',gap:5,margin:'12px 0 18px'}}>
+            {[['todos','Todos'],['presentes','Presentes'],['pendentes','Pendentes'],['mesas','Mesas'],['buffet','Buffet']].map(([valor, texto]) => (
+              <button key={valor} type="button" className={filtro === valor ? 'active' : ''}
+                onClick={() => {setFiltro(valor);setBusca('');setAlterandoMesaId(null);}}
+                style={{padding:'11px 3px',fontSize:12,minWidth:0,whiteSpace:'nowrap'}}>
+                {texto}
+              </button>
+            ))}
+          </nav>
+          {filtro === 'buffet' ? (
           <section style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:16,padding:'15px 18px',marginBottom:16}} aria-label="Faixas etárias do buffet">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
               <strong style={{color:'var(--ameixa)'}}>Crianças • buffet</strong>
@@ -344,31 +402,81 @@ export default function Home() {
             )}
             {mensagemFaixas && <p role="status" style={{fontSize:13,color:'var(--suave)',margin:'8px 0 0'}}>{mensagemFaixas}</p>}
           </section>
-          <section className="tools">
-            <input aria-label="Pesquisar convidado" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Pesquisar convidado..." />
-            <button className="add" onClick={adicionar} disabled={carregando || ocupado}>+ Convidado extra</button>
-          </section>
-          <nav>
-            {[['todos','Todos'],['presentes','Presentes'],['pendentes','Pendentes']].map(([valor, texto]) => (
-              <button key={valor} className={filtro === valor ? 'active' : ''} onClick={() => setFiltro(valor)}>{texto}</button>
-            ))}
-          </nav>
-          <section className="list">
-            {carregando && <p role="status">Atualizando convidados...</p>}
-            {lista.map(c => {
-              const presente = presentesIds.has(c.id);
-              return (
-                <article key={c.id} className={presente ? 'checked' : ''}>
-                  <div><h2>{c.nome}</h2><p>{apresentarMesa(c.mesa)}{ehCrianca(c) ? ` · Criança · ${c.idade} anos` : ''}</p></div>
-                  <div style={{display:'grid',gap:8,width:'100%'}}>
-                    <button disabled={ocupado || carregando} onClick={() => check(c)}>{presente ? '✓ Presente' : 'Fazer check-in'}</button>
-                    <button type="button" disabled={ocupado || carregando} onClick={() => confirmarIdade(c)} style={{border:'1px solid var(--borda)',borderRadius:10,padding:'9px 12px',background:'#fff',color:'var(--vinho)',fontSize:12,fontWeight:600,cursor:'pointer',width:'100%'}}>{ehCrianca(c) ? 'Alterar idade da criança' : 'É criança? Informar idade'}</button>
-                  </div>
-                </article>
-              );
-            })}
-            {!carregando && !lista.length && !aviso && !erro && <div className="empty">Nenhum convidado encontrado.</div>}
-          </section>
+          ) : (
+            <>
+              {filtro === 'mesas' ? (
+                <section style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:16,padding:16,marginBottom:15}}>
+                  <label htmlFor="mesa-selecionada" style={{display:'block',fontWeight:700,color:'var(--ameixa)',marginBottom:8}}>Escolha uma mesa ou setor</label>
+                  <select id="mesa-selecionada" value={mesaAtual}
+                    onChange={e => {setMesaSelecionada(e.target.value);setAlterandoMesaId(null);}}
+                    style={{width:'100%'}}>
+                    {mesas.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <p style={{margin:'12px 0 0',color:'var(--suave)',fontSize:14}}>
+                    {convidadosDaMesa.length} convidados · {presentesDaMesa} presentes · {convidadosDaMesa.length - presentesDaMesa} pendentes
+                  </p>
+                </section>
+              ) : (
+                <section className="tools">
+                  <button type="button" className="add" onClick={adicionar} disabled={carregando || ocupado}>+ Convidado extra</button>
+                </section>
+              )}
+              <section className="tools">
+                <input aria-label="Pesquisar convidado" value={busca}
+                  onChange={e => setBusca(e.target.value)} placeholder="Pesquisar convidado..." />
+              </section>
+              <section className="list">
+                {carregando && <p role="status">Atualizando convidados...</p>}
+                {(filtro === 'mesas'
+                  ? convidadosDaMesa.filter(c => (c.nome || '').toLowerCase().includes(busca.toLowerCase()))
+                  : lista
+                ).map(c => {
+                  const presente = presentesIds.has(c.id);
+                  return (
+                    <article key={c.id} className={presente ? 'checked' : ''}>
+                      <div>
+                        <h2>{c.nome}</h2>
+                        <p>{apresentarMesa(c.mesa)}{ehCrianca(c) ? ` · Criança · ${c.idade} anos` : ''}</p>
+                      </div>
+                      <div style={{display:'grid',gap:8,width:'100%'}}>
+                        <button disabled={ocupado || carregando} onClick={() => check(c)}>
+                          {presente ? '✓ Presente' : 'Fazer check-in'}
+                        </button>
+                        <button type="button" disabled={ocupado || carregando}
+                          onClick={() => confirmarIdade(c)}
+                          style={{border:'1px solid var(--borda)',borderRadius:10,padding:'9px 12px',background:'#fff',color:'var(--vinho)',fontSize:12,fontWeight:600,cursor:'pointer',width:'100%'}}>
+                          {ehCrianca(c) ? 'Alterar idade da criança' : 'É criança? Informar idade'}
+                        </button>
+                        {alterandoMesaId === c.id ? (
+                          <div style={{display:'grid',gap:8,padding:10,background:'#faf5f7',borderRadius:12}}>
+                            <label htmlFor={'nova-mesa-'+c.id} style={{fontSize:13,fontWeight:700}}>Nova mesa ou setor</label>
+                            <input id={'nova-mesa-'+c.id} value={novaMesa}
+                              onChange={e=>setNovaMesa(e.target.value)} placeholder="Ex.: 08 ou Setor Jardim" />
+                            <div style={{display:'flex',gap:8}}>
+                              <button type="button" disabled={ocupado} onClick={()=>setAlterandoMesaId(null)}
+                                style={{flex:1,whiteSpace:'normal'}}>Cancelar</button>
+                              <button type="button" disabled={ocupado} onClick={()=>salvarMesa(c)}
+                                style={{flex:1,background:'var(--vinho)',color:'#fff',whiteSpace:'normal'}}>Confirmar</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button type="button" disabled={ocupado || carregando}
+                            onClick={()=>abrirAlteracaoMesa(c)}
+                            style={{border:'1px solid var(--borda)',borderRadius:10,padding:'9px 12px',background:'#fff',color:'var(--vinho)',fontSize:12,fontWeight:600,cursor:'pointer',width:'100%'}}>
+                            Alterar mesa
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+                {!carregando && (filtro === 'mesas'
+                  ? !convidadosDaMesa.some(c => (c.nome || '').toLowerCase().includes(busca.toLowerCase()))
+                  : !lista.length
+                ) && !aviso && !erro && <div className="empty">Nenhum convidado encontrado.</div>}
+              </section>
+            </>
+          )}
         </>
       )}
       <footer>PM Cerimonial · Versão de teste · Acesso seguro em desenvolvimento</footer>
