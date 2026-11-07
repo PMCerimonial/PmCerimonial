@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 const RECEPCIONISTAS = ['Marcela', 'Sueli', 'Patrícia', 'Isabela'];
+// Associação temporária do evento de teste. Não equivale a autenticação.
+const EVENTOS_TESTE = { '01/11/2026': '017dd324-dbba-4674-ba24-b7ed7e5cfaa0' };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function Home() {
@@ -13,11 +15,39 @@ export default function Home() {
   const [filtro, setFiltro] = useState('todos');
   const [recepcionista, setRecepcionista] = useState(RECEPCIONISTAS[0]);
   const [eventoId, setEventoId] = useState('');
+  const [codigoEvento, setCodigoEvento] = useState('');
+  const [acessoMensagem, setAcessoMensagem] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const idValido = UUID_RE.test(eventoId);
+
+  function entrar(evento) {
+    evento.preventDefault();
+    const codigo = codigoEvento.trim();
+    if (!RECEPCIONISTAS.includes(recepcionista)) {
+      setAcessoMensagem('Escolha uma recepcionista da equipe.');
+      return;
+    }
+    const id = EVENTOS_TESTE[codigo];
+    if (!id) {
+      setAcessoMensagem('Código ainda não cadastrado nesta versão de teste. Para este teste, use 01/11/2026.');
+      return;
+    }
+    setAcessoMensagem('');
+    setEventoId(id);
+  }
+
+  function sair() {
+    setEventoId('');
+    setConvidados([]);
+    setCheckins([]);
+    setBusca('');
+    setFiltro('todos');
+    setErro('');
+    setAviso('');
+  }
 
   async function carregar(id) {
     if (!UUID_RE.test(id)) return;
@@ -110,30 +140,42 @@ export default function Home() {
 
   return (
     <main className="shell">
-      <header>
-        <div>
-          <span className="eyebrow">PM CERIMONIAL</span>
-          <h1>Recepção de convidados</h1>
-          <p>Controle compartilhado de presença</p>
-        </div>
-        <div className="who">
-          <label htmlFor="recepcionista">Recepcionista</label>
-          <select id="recepcionista" value={recepcionista} onChange={e => setRecepcionista(e.target.value)}>
-            {RECEPCIONISTAS.map(nome => <option key={nome}>{nome}</option>)}
-          </select>
-        </div>
-      </header>
-
-      <section className="tools">
-        <input aria-label="Identificador do evento" value={eventoId} onChange={e => setEventoId(e.target.value.trim())} placeholder="ID do evento (UUID)" autoComplete="off" />
-      </section>
-
       {!eventoId ? (
-        <div className="empty">Informe o identificador do evento para consultar a lista.</div>
-      ) : !idValido ? (
-        <div className="empty">Insira o identificador completo do evento (UUID).</div>
+        <>
+          <header>
+            <div>
+              <span className="eyebrow">PM CERIMONIAL</span>
+              <h1>Bem-vinda à recepção</h1>
+              <p>Acesso ao evento</p>
+            </div>
+          </header>
+          <form onSubmit={entrar} style={{background:'white',marginTop:18,padding:22,borderRadius:20,border:'1px solid var(--borda)',display:'grid',gap:16}}>
+            <div style={{display:'grid',gap:7}}>
+              <label htmlFor="codigo-evento" style={{fontWeight:700,color:'var(--ameixa)'}}>Código do evento</label>
+              <input id="codigo-evento" value={codigoEvento} onChange={e=>setCodigoEvento(e.target.value)} placeholder="DD/MM/AAAA" inputMode="numeric" autoComplete="off" required />
+              <small style={{color:'var(--suave)'}}>Para o evento de teste: 01/11/2026</small>
+            </div>
+            <div style={{display:'grid',gap:7}}>
+              <label htmlFor="recepcionista" style={{fontWeight:700,color:'var(--ameixa)'}}>Recepcionista</label>
+              <select id="recepcionista" value={recepcionista} onChange={e=>setRecepcionista(e.target.value)}>
+                {RECEPCIONISTAS.map(nome=><option key={nome} value={nome}>{nome}</option>)}
+              </select>
+            </div>
+            {acessoMensagem && <p role="alert">{acessoMensagem}</p>}
+            <button type="submit" className="add">Entrar no evento</button>
+          </form>
+          <p style={{fontSize:12,color:'var(--suave)',textAlign:'center',lineHeight:1.5}}>Versão de teste: a seleção do nome não autentica a recepcionista. A autorização segura dos dados continua pendente.</p>
+        </>
       ) : (
         <>
+          <header>
+            <div>
+              <span className="eyebrow">PM CERIMONIAL</span>
+              <h1>Recepção de convidados</h1>
+              <p>Evento {codigoEvento} · {recepcionista}</p>
+            </div>
+            <button onClick={sair} style={{border:'1px solid #f0d8e1',borderRadius:12,background:'transparent',color:'white',padding:'10px 13px',cursor:'pointer'}}>Trocar evento</button>
+          </header>
           {erro && <p role="alert">{erro}</p>}
           {aviso && !carregando && <p role="status" style={{padding:'14px',background:'#fff6ee',border:'1px solid #e7d4bf',borderRadius:'12px',color:'#6b4939'}}>{aviso}</p>}
           <section className="stats">
@@ -165,7 +207,7 @@ export default function Home() {
           </section>
         </>
       )}
-      <footer>PM Cerimonial · Integração Supabase</footer>
+      <footer>PM Cerimonial · Versão de teste · Acesso seguro em desenvolvimento</footer>
     </main>
   );
 }
