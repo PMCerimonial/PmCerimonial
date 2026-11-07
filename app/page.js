@@ -49,6 +49,52 @@ export default function Home() {
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
+  const [faixas, setFaixas] = useState(null);
+  const [editandoFaixas, setEditandoFaixas] = useState(false);
+  const [limiteIsento, setLimiteIsento] = useState('');
+  const [limiteMeia, setLimiteMeia] = useState('');
+  const [salvandoFaixas, setSalvandoFaixas] = useState(false);
+  const [mensagemFaixas, setMensagemFaixas] = useState('');
+
+  useEffect(() => {
+    let ativo = true;
+    setFaixas(null);
+    setMensagemFaixas('');
+    if (!eventoId) return;
+    supabase.from('faixas_buffet').select('isento_ate,meia_ate')
+      .eq('evento_id', eventoId).maybeSingle().then(({data,error}) => {
+        if (!ativo) return;
+        if (error) {
+          setMensagemFaixas('Faixas ainda não disponíveis neste evento. Verifique a configuração no Supabase.');
+        } else if (data) {
+          setFaixas(data);
+          setLimiteIsento(String(data.isento_ate));
+          setLimiteMeia(String(data.meia_ate));
+        }
+      });
+    return () => { ativo = false; };
+  }, [eventoId]);
+
+  async function guardarFaixas(e) {
+    e.preventDefault();
+    const isento = Number(limiteIsento);
+    const meia = Number(limiteMeia);
+    if (limiteIsento === '' || limiteMeia === '' || !Number.isInteger(isento) || !Number.isInteger(meia) || isento < 0 || meia < isento || meia > 17) {
+      setMensagemFaixas('Informe limites de idade válidos entre 0 e 17 anos, em ordem crescente.');
+      return;
+    }
+    setSalvandoFaixas(true);
+    setMensagemFaixas('');
+    const {error} = await supabase.from('faixas_buffet').upsert({evento_id:eventoId, isento_ate:isento, meia_ate:meia}, {onConflict:'evento_id'});
+    if (error) setMensagemFaixas(`Não foi possível salvar as faixas: ${error.message}`);
+    else {
+      setFaixas({isento_ate:isento, meia_ate:meia});
+      setEditandoFaixas(false);
+      setMensagemFaixas('Faixas salvas para este evento.');
+    }
+    setSalvandoFaixas(false);
+  }
+
   const idValido = UUID_RE.test(eventoId);
 
   function entrar(evento) {
@@ -144,6 +190,10 @@ export default function Home() {
   const criancas = convidados.filter(ehCrianca);
   const criancasPresentes = criancas.filter(c => presentesIds.has(c.id)).length;
   const adultosPresentes = presentes - criancasPresentes;
+  const criancasIsentas = faixas ? criancas.filter(c => presentesIds.has(c.id) && Number(c.idade) <= faixas.isento_ate).length : 0;
+  const criancasMeia = faixas ? criancas.filter(c => presentesIds.has(c.id) && Number(c.idade) > faixas.isento_ate && Number(c.idade) <= faixas.meia_ate).length : 0;
+  const criancasIntegral = faixas ? criancas.filter(c => presentesIds.has(c.id) && Number(c.idade) > faixas.meia_ate).length : 0;
+
 
 
   async function check(convidado) {
@@ -266,12 +316,34 @@ export default function Home() {
             <div><b>{presentes}</b><span>Presentes</span></div>
             <div><b>{convidados.length - presentes}</b><span>Pendentes</span></div>
           </section>
-          <section aria-label="Resumo de crianças" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:8,margin:'-4px 0 16px'}}>
-            <div style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:14,padding:'12px 9px'}}><strong style={{display:'block',fontSize:24,color:'var(--vinho)'}}>{criancas.length}</strong><small style={{color:'var(--suave)'}}>Crianças identificadas</small></div>
-            <div style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:14,padding:'12px 9px'}}><strong style={{display:'block',fontSize:24,color:'var(--vinho)'}}>{criancasPresentes}</strong><small style={{color:'var(--suave)'}}>Crianças presentes</small></div>
-            <div style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:14,padding:'12px 9px'}}><strong style={{display:'block',fontSize:24,color:'var(--vinho)'}}>{adultosPresentes}</strong><small style={{color:'var(--suave)'}}>Presentes sem idade infantil</small></div>
+          <section aria-label="Resumo infantil" style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:16,padding:'14px 18px',margin:'-4px 0 16px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}>
+            <span style={{color:'var(--ameixa)',fontWeight:700}}>Crianças presentes</span>
+            <strong style={{fontSize:28,color:'var(--vinho)'}}>{criancasPresentes}</strong>
           </section>
-          <p style={{fontSize:12,color:'var(--suave)',margin:'-7px 0 14px'}}>Crianças identificadas por idade de 0 a 17 anos. Faixas de cobrança do buffet serão configuradas separadamente; “presentes sem idade infantil” inclui convidados ainda não classificados.</p>
+          <section style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:16,padding:'15px 18px',marginBottom:16}} aria-label="Faixas etárias do buffet">
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <strong style={{color:'var(--ameixa)'}}>Crianças • buffet</strong>
+              <button type="button" onClick={() => {setEditandoFaixas(v=>!v);setMensagemFaixas('');}} style={{background:'#f3e7eb',border:0,borderRadius:10,padding:'9px 12px',color:'var(--vinho)',fontWeight:700}}>{faixas ? 'Alterar faixas' : 'Configurar faixas'}</button>
+            </div>
+            {faixas ? (
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:8,marginTop:12,textAlign:'center'}}>
+                <div><strong style={{display:'block',fontSize:23,color:'var(--vinho)'}}>{criancasIsentas}</strong><small>Isentas (até {faixas.isento_ate} anos)</small></div>
+                <div><strong style={{display:'block',fontSize:23,color:'var(--vinho)'}}>{criancasMeia}</strong><small>Meia ({faixas.isento_ate+1}–{faixas.meia_ate} anos)</small></div>
+                <div><strong style={{display:'block',fontSize:23,color:'var(--vinho)'}}>{criancasIntegral}</strong><small>Integral (acima de {faixas.meia_ate})</small></div>
+              </div>
+            ) : <p style={{fontSize:13,color:'var(--suave)',margin:'9px 0 0'}}>Defina as regras do buffet para calcular as faixas das crianças presentes.</p>}
+            {editandoFaixas && (
+              <form onSubmit={guardarFaixas} style={{display:'grid',gap:9,marginTop:14}}>
+                <label htmlFor="isento-ate">Idade máxima isenta</label>
+                <input id="isento-ate" inputMode="numeric" type="number" min="0" max="17" value={limiteIsento} onChange={e=>setLimiteIsento(e.target.value)} required />
+                <label htmlFor="meia-ate">Idade máxima de meia cobrança</label>
+                <input id="meia-ate" inputMode="numeric" type="number" min="0" max="17" value={limiteMeia} onChange={e=>setLimiteMeia(e.target.value)} required />
+                <button type="submit" className="add" disabled={salvandoFaixas}>{salvandoFaixas ? 'Salvando...' : 'Salvar faixas do evento'}</button>
+                <small style={{color:'var(--suave)'}}>Idades acima do segundo limite entram na faixa integral. Regras válidas para crianças de 0 a 17 anos.</small>
+              </form>
+            )}
+            {mensagemFaixas && <p role="status" style={{fontSize:13,color:'var(--suave)',margin:'8px 0 0'}}>{mensagemFaixas}</p>}
+          </section>
           <section className="tools">
             <input aria-label="Pesquisar convidado" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Pesquisar convidado..." />
             <button className="add" onClick={adicionar} disabled={carregando || ocupado}>+ Convidado extra</button>
