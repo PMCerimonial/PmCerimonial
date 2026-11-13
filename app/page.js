@@ -329,7 +329,7 @@ export default function Home() {
             <div style={{maxWidth:430,paddingRight:88,position:"relative",zIndex:1}}>
               <div style={{background:"rgba(255,255,255,.92)",borderRadius:18,padding:10,width:"min(100%,220px)",marginBottom:14,boxShadow:"0 8px 26px rgba(113,53,80,.06)"}}><img src={LOGO_PM} alt="Logomarca original Patrícia Matavelli" style={{display:"block",width:"100%",height:"auto"}} /></div>
               <p style={{fontSize:11,fontWeight:500,letterSpacing:"2px",textTransform:"uppercase",margin:"0 0 8px",color:"#7a5b69"}}>Patrícia Matavelli Cerimonial</p>
-              <h1 style={{maxWidth:420,margin:"0 0 10px",fontSize:"clamp(2.2rem, 5vw, 3.2rem)",lineHeight:1.12}}>Bem-vinda ao Cerimonial Matavelli</h1>
+              <h1 style={{maxWidth:420,margin:"0 0 10px",fontSize:"clamp(1.85rem, 4.2vw, 2.7rem)",lineHeight:1.08}}>Bem-vinda ao Cerimonial Matavelli</h1>
               <p style={{fontSize:15,margin:0,color:"#7d6170"}}>Acesso ao evento</p>
             </div>
           </header>
