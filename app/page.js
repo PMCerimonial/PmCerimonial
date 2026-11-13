@@ -325,8 +325,9 @@ export default function Home() {
         <>
           <header>
             <div>
-              <div style={{background:"#fff",borderRadius:18,padding:12,width:"min(100%,260px)",marginBottom:16}}><img src={LOGO_PM} alt="Patrícia Matavelli Cerimonialista — logomarca oficial" style={{display:"block",width:"100%",height:"auto"}} /></div>
-              <h1>Bem-vinda à recepção</h1>
+              <div style={{background:"#fff",borderRadius:18,padding:12,width:"min(100%,260px)",marginBottom:16}}><img src={LOGO_PM} alt="Logomarca original Patrícia Matavelli" style={{display:"block",width:"100%",height:"auto"}} /></div>
+              <p style={{fontSize:12,fontWeight:500,letterSpacing:"1.5px",textTransform:"uppercase",margin:"0 0 8px"}}>Patrícia Matavelli Cerimonial</p>
+              <h1>Bem-vinda ao Cerimonial Matavelli</h1>
               <p>Acesso ao evento</p>
             </div>
           </header>
@@ -351,7 +352,7 @@ export default function Home() {
         <>
           <header>
             <div>
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}><span style={{display:"inline-flex",background:"white",borderRadius:"50%",padding:6,width:65,height:65,alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}><img src={MONOGRAMA_PM} alt="Monograma pm" style={{width:"100%",height:"100%",objectFit:"contain",borderRadius:"50%"}} /></span><span className="eyebrow">PM CERIMONIAL</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}><span style={{display:"inline-flex",background:"white",borderRadius:"50%",padding:6,width:65,height:65,alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}><span aria-label="PM" style={{fontFamily:"Montserrat, sans-serif",fontSize:22,fontWeight:300,letterSpacing:2,color:"#713550"}}>PM</span></span><span className="eyebrow" style={{fontSize:11,letterSpacing:"1.3px",lineHeight:1.5}}>PATRÍCIA MATAVELLI CERIMONIAL</span></div>
               <h1>{eventoId === EVENTOS_TESTE['01/11/2026'] ? 'Allan & Luciana' : 'Recepção de convidados'}</h1>
               <p>Evento {codigoEvento} · {recepcionista}</p>
             </div>
@@ -479,7 +480,7 @@ export default function Home() {
           )}
         </>
       )}
-      <footer>PM Cerimonial · Versão de teste · Acesso seguro em desenvolvimento</footer>
+      <footer>Patrícia Matavelli Cerimonial · Versão de teste · Acesso seguro em desenvolvimento</footer>
     </main>
   );
 }
