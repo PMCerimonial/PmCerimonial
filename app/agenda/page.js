@@ -28,13 +28,14 @@ export default function Agenda() {
     let ativo = true;
     async function carregar() {
       setEstado('carregando'); setErro('');
+      // Somente colunas permitidas para a consulta sem login; não pede local ou observações.
       const {data,error} = await supabase.from('agenda_eventos')
-        .select('data_evento,tipo_evento,local_evento,status')
+        .select('data_evento,tipo_evento,status')
         .gte('data_evento',inicio).lte('data_evento',fim).order('data_evento');
       if (!ativo) return;
       if (error) {
         setRegistros([]); setEstado('erro');
-        setErro('A agenda compartilhada ainda não está liberada para consulta. A configuração de acesso será concluída no Supabase.');
+        setErro('Não foi possível consultar a disponibilidade agora. Verifique a conexão e tente novamente.');
       } else { setRegistros(data || []); setEstado('pronto'); }
     }
     carregar();
@@ -61,7 +62,9 @@ export default function Agenda() {
       <h1>Agenda de eventos</h1>
       <p>Consulte a disponibilidade das datas</p>
     </header>
-    <div className="agenda-atalhos"><a href="/" className="agenda-voltar">← Voltar à recepção</a><a href="/agenda/admin" className="agenda-voltar">Administrar agenda</a></div>
+    <div className="agenda-atalhos" style={{justifyContent:'flex-end'}}>
+      <a href="/agenda/admin" className="agenda-voltar">Administrar agenda</a>
+    </div>
     <section className="agenda-painel" aria-label="Calendário de disponibilidade">
       <div className="agenda-navegacao">
         <button type="button" onClick={()=>mudarMes(-1)} aria-label="Mês anterior">‹</button>
@@ -93,10 +96,9 @@ export default function Agenda() {
         {registro ? <>
           <strong>{registro.status==='bloqueado'?'Data bloqueada':registro.tipo_evento||'Evento'}</strong>
           <span className={`agenda-situacao ${STATUS[registro.status]?.classe||'bloqueado'}`}>{STATUS[registro.status]?.texto||'Ocupado'}</span>
-          {registro.local_evento && <p>{registro.local_evento}</p>}
         </> : <><strong>Data disponível</strong><p>Sem reservas ou bloqueios registrados.</p></>}
       </div>}
     </section>
-    <p className="agenda-nota">Consulta de disponibilidade. O cadastro e a alteração de datas serão exclusivos das administradoras após a configuração do acesso seguro.</p>
+    <p className="agenda-nota">Consulta de disponibilidade. Cadastro e alteração de datas exclusivos das administradoras.</p>
   </main>;
 }
