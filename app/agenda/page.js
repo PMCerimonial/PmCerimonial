@@ -61,7 +61,7 @@ export default function Agenda() {
       <h1>Agenda de eventos</h1>
       <p>Consulte a disponibilidade das datas</p>
     </header>
-    <a href="/" className="agenda-voltar">← Voltar à recepção</a>
+    <div className="agenda-atalhos"><a href="/" className="agenda-voltar">← Voltar à recepção</a><a href="/agenda/admin" className="agenda-voltar">Administrar agenda</a></div>
     <section className="agenda-painel" aria-label="Calendário de disponibilidade">
       <div className="agenda-navegacao">
         <button type="button" onClick={()=>mudarMes(-1)} aria-label="Mês anterior">‹</button>
