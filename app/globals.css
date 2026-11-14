@@ -18,9 +18,9 @@ body { margin: 0; min-height: 100vh; background: linear-gradient(160deg,#fffafd,
 header { background: linear-gradient(125deg,#f8e0e9,#efc7d8); color: var(--vinho); border: 1px solid #eacbd9; border-radius: 24px; padding: 28px; display: flex; justify-content: space-between; gap: 20px; align-items: end; box-shadow: 0 12px 34px rgba(113,53,80,.10); position:relative; overflow:hidden; isolation:isolate; }
 header > * { position:relative; z-index:1; }
 header::before { content:''; position:absolute; z-index:0; width:170px; height:190px; right:-22px; top:-25px; opacity:.19; transform:rotate(-20deg); pointer-events:none; background-repeat:no-repeat; background-position:center; background-size:contain; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='180' viewBox='0 0 160 180'%3E%3Cg fill='none' stroke='%23713550' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M36 178C54 127 100 97 114 15M54 133C30 119 23 96 21 78M66 117C98 124 119 111 136 91M85 93C61 77 57 58 58 43M106 45C125 42 135 30 144 12'/%3E%3C/g%3E%3Cg fill='%23b86f90' opacity='.72'%3E%3Cellipse cx='24' cy='84' rx='10' ry='19' transform='rotate(-34 24 84)'/%3E%3Cellipse cx='45' cy='102' rx='9' ry='18' transform='rotate(-30 45 102)'/%3E%3Cellipse cx='125' cy='99' rx='10' ry='19' transform='rotate(50 125 99)'/%3E%3Cellipse cx='103' cy='113' rx='9' ry='16' transform='rotate(40 103 113)'/%3E%3Cellipse cx='63' cy='52' rx='9' ry='17' transform='rotate(-27 63 52)'/%3E%3Cellipse cx='73' cy='77' rx='8' ry='14' transform='rotate(-35 73 77)'/%3E%3Cellipse cx='132' cy='28' rx='8' ry='16' transform='rotate(42 132 28)'/%3E%3C/g%3E%3C/svg%3E"); }
-.eyebrow { display:block; font-size:0; font-weight:500; letter-spacing:1.4px; color:var(--vinho); text-transform:uppercase; }
-/* Substituição visual do título legado sem alterar o JavaScript do check-in. */
-.eyebrow::after { content:'PATRÍCIA MATAVELLI CERIMONIAL'; font-size:12px; line-height:1.55; }
+.eyebrow { display:block; font-size:12px; font-weight:500; letter-spacing:1.4px; color:var(--vinho); text-transform:uppercase; }
+.welcome-content { max-width:430px; min-width:0; padding-right:88px; position:relative; z-index:1; }
+.welcome-title { max-width:22ch; margin:0 0 12px; font-size:clamp(1.5rem, 2.8vw, 2rem); line-height:1.4; text-wrap:balance; }
 h1 { margin: 10px 0 8px; font-family: Montserrat,'Avenir Next','Segoe UI',sans-serif; font-size: 31px; font-weight: 300; letter-spacing:.4px; line-height: 1.25; }
 header p { margin: 0; color:#784c64; font-size: 14px; }
 .who { min-width: 180px; }
@@ -52,13 +52,11 @@ article small { display:block; margin-top:6px; color:#926878; }
 article button { background:#f3e7eb; color:var(--vinho); white-space:nowrap; }
 .checked button { background:#dfefe5; color:var(--sucesso); }
 .empty,footer { text-align:center; color:var(--suave); padding:28px; }
-footer { font-size:0; margin-top:12px; }
-footer::after { content:'Patrícia Matavelli Cerimonial · Versão de teste · Acesso seguro em desenvolvimento'; font-size:12px; line-height:1.6; }
+footer { font-size:12px; line-height:1.6; margin-top:12px; }
 [role='alert'] { background:#fff0f0; border:1px solid #efcccc; border-radius:12px; color:#923b48; padding:12px 14px; }
-/* Monograma PM em caixa alta nas telas internas. */
-header div[style*="display: flex"] > span:first-child { position:relative; }
-header div[style*="display: flex"] > span:first-child img { opacity:0; }
-header div[style*="display: flex"] > span:first-child::after { content:'PM'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--vinho); font-size:22px; font-weight:300; letter-spacing:1px; }
+@media (min-width:621px) and (max-width:1024px) {
+  .welcome-title { font-size:clamp(1.375rem, 3vw, 1.75rem); }
+}
 @media (max-width:620px) {
   .shell { padding:14px 12px 36px; }
   header { display:block; padding:24px 21px; border-radius:20px; }
@@ -73,5 +71,7 @@ header div[style*="display: flex"] > span:first-child::after { content:'PM'; pos
   article button { width:100%; }
   h1 { font-size:29px; }
   nav button { flex:1; padding:11px 7px; font-size:13px; }
-  .eyebrow::after { font-size:10px; letter-spacing:.65px; }
+  .welcome-content { padding-right:0; }
+  .welcome-header .welcome-title { font-size:clamp(1.25rem, 4.8vw, 1.5rem); line-height:1.4; }
+  .eyebrow { font-size:10px; letter-spacing:.65px; }
 }

@@ -323,13 +323,12 @@ export default function Home() {
     <main className="shell">
       {!eventoId ? (
         <>
-          <header style={{padding:"26px 22px 20px",background:"linear-gradient(145deg,#f3dbe5 0%,#efcedc 55%,#efc8d8 100%)",position:"relative"}}>
+          <header className="welcome-header" style={{padding:"26px 22px 20px",background:"linear-gradient(145deg,#f3dbe5 0%,#efcedc 55%,#efc8d8 100%)",position:"relative"}}>
             <div style={{position:"absolute",top:20,right:18,width:118,height:185,opacity:.38,pointerEvents:"none",backgroundRepeat:"no-repeat",backgroundPosition:"center",backgroundSize:"contain",backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='190' viewBox='0 0 120 190'%3E%3Cg fill='none' stroke='%23b7879d' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M68 188C65 145 69 101 84 18'/%3E%3Cpath d='M77 140c-17-10-25-23-30-39'/%3E%3Cpath d='M79 116c18-3 27-12 33-27'/%3E%3Cpath d='M82 83c-16-9-23-19-28-34'/%3E%3Cpath d='M86 59c16-4 24-13 28-28'/%3E%3C/g%3E%3Cg fill='%23d9b6c5' opacity='.95'%3E%3Cellipse cx='47' cy='98' rx='10' ry='22' transform='rotate(-36 47 98)'/%3E%3Cellipse cx='95' cy='92' rx='10' ry='22' transform='rotate(43 95 92)'/%3E%3Cellipse cx='42' cy='60' rx='9' ry='18' transform='rotate(-34 42 60)'/%3E%3Cellipse cx='96' cy='35' rx='9' ry='18' transform='rotate(41 96 35)'/%3E%3Cellipse cx='53' cy='137' rx='9' ry='19' transform='rotate(-33 53 137)'/%3E%3C/g%3E%3C/svg%3E")`}} />
             <div style={{position:"absolute",left:18,bottom:18,width:92,height:92,opacity:.18,pointerEvents:"none",backgroundRepeat:"no-repeat",backgroundPosition:"center",backgroundSize:"contain",backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='92' height='92' viewBox='0 0 92 92'%3E%3Cg fill='none' stroke='%23b7879d' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M15 78c18-12 31-33 36-63'/%3E%3Cpath d='M29 56c-8-3-15-8-21-16'/%3E%3Cpath d='M36 42c10 0 18-4 26-12'/%3E%3C/g%3E%3Cg fill='%23d9b6c5'%3E%3Cellipse cx='18' cy='37' rx='7' ry='13' transform='rotate(-37 18 37)'/%3E%3Cellipse cx='55' cy='30' rx='7' ry='13' transform='rotate(35 55 30)'/%3E%3Cellipse cx='33' cy='56' rx='6' ry='12' transform='rotate(-28 33 56)'/%3E%3C/g%3E%3C/svg%3E")`}} />
-            <div style={{maxWidth:430,paddingRight:88,position:"relative",zIndex:1}}>
+            <div className="welcome-content">
               <div style={{background:"rgba(255,255,255,.92)",borderRadius:18,padding:10,width:"min(100%,220px)",marginBottom:14,boxShadow:"0 8px 26px rgba(113,53,80,.06)"}}><img src={LOGO_PM} alt="Logomarca original Patrícia Matavelli" style={{display:"block",width:"100%",height:"auto"}} /></div>
-              <p style={{fontSize:11,fontWeight:500,letterSpacing:"2px",textTransform:"uppercase",margin:"0 0 8px",color:"#7a5b69"}}>Patrícia Matavelli Cerimonial</p>
-              <h1 style={{maxWidth:420,margin:"0 0 10px",fontSize:"clamp(1.85rem, 4.2vw, 2.7rem)",lineHeight:1.08}}>Bem-vinda ao Cerimonial Matavelli</h1>
+              <h1 className="welcome-title">Bem-vinda ao Cerimonial Matavelli</h1>
               <p style={{fontSize:15,margin:0,color:"#7d6170"}}>Acesso ao evento</p>
             </div>
           </header>
@@ -482,7 +481,7 @@ export default function Home() {
           )}
         </>
       )}
-      <footer>Patrícia Matavelli Cerimonial · Versão de teste · Acesso seguro em desenvolvimento</footer>
+      <footer>Versão de teste · Acesso seguro em desenvolvimento</footer>
     </main>
   );
 }
