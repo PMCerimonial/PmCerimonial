@@ -17,6 +17,7 @@ export default function AdminEventos(){
   const [eventId,setEventId]=useState(''),[guestCount,setGuestCount]=useState(0);
   const [sheets,setSheets]=useState([]),[sheetIndex,setSheetIndex]=useState(0),[headerIndex,setHeaderIndex]=useState(0);
   const [nameCol,setNameCol]=useState(0),[tableCol,setTableCol]=useState(-1),[uploading,setUploading]=useState(false);
+  const [staff,setStaff]=useState([]),[assigned,setAssigned]=useState([]),[staffId,setStaffId]=useState(''),[newStaff,setNewStaff]=useState('');
 
   const loadEvents=useCallback(async()=>{
     const {data,error}=await supabase.from('eventos').select('id,nome,data_evento,codigo_acesso,ativo').order('data_evento',{ascending:false});
@@ -32,6 +33,18 @@ export default function AdminEventos(){
   },[]);
   useEffect(()=>{verify();const {data:{subscription}}=supabase.auth.onAuthStateChange(()=>verify());return ()=>subscription.unsubscribe();},[verify]);
   useEffect(()=>{if(admin)loadEvents();},[admin,loadEvents]);
+  const loadStaff=useCallback(async()=>{
+    const {data,error}=await supabase.from('recepcionistas').select('id,nome,ativo').eq('ativo',true).order('nome');
+    if(error)setMessage('Equipe: '+error.message);else setStaff(data||[]);
+  },[]);
+  const loadAssigned=useCallback(async()=>{
+    if(!eventId){setAssigned([]);return;}
+    const {data,error}=await supabase.from('equipe_evento').select('id,recepcionista_id').eq('evento_id',eventId);
+    if(error)setMessage('Vínculos da equipe: '+error.message);else setAssigned(data||[]);
+  },[eventId]);
+  useEffect(()=>{if(admin)loadStaff();},[admin,loadStaff]);
+  useEffect(()=>{if(admin)loadAssigned();},[admin,loadAssigned]);
+
   useEffect(()=>{
     if(!eventId){setGuestCount(0);return;}
     supabase.from('convidados').select('id',{count:'exact',head:true}).eq('evento_id',eventId).then(({count,error})=>{if(!error)setGuestCount(count||0);});
@@ -51,6 +64,22 @@ export default function AdminEventos(){
     if(error){setMessage(error.code==='23505'?'Já existe evento para esta data/código.':error.message);return;}
     setForm({name:'',date:'',place:''});setEventId(data.id);await loadEvents();setMessage('Evento criado. Agora importe a lista.');
   }
+  async function addStaff(e){
+    e.preventDefault();if(!admin||!eventId||!staffId)return;
+    if(assigned.some(x=>x.recepcionista_id===staffId)){setMessage('Recepcionista já vinculada.');return;}
+    setBusy(true);const {error}=await supabase.from('equipe_evento').insert({evento_id:eventId,recepcionista_id:staffId,funcao:'recepcao'});
+    setBusy(false);if(error)setMessage('Não foi possível vincular: '+error.message);else {setMessage('Recepcionista vinculada ao evento.');await loadAssigned();}
+  }
+  async function addNewStaff(e){
+    e.preventDefault();if(!admin||!newStaff.trim())return;
+    setBusy(true);const {error}=await supabase.from('recepcionistas').insert({nome:newStaff.trim(),ativo:true});
+    setBusy(false);if(error)setMessage('Não foi possível cadastrar: '+error.message);else{setNewStaff('');setMessage('Recepcionista cadastrada. Agora vincule ao evento.');await loadStaff();}
+  }
+  async function removeStaff(id){
+    if(!admin||!eventId||!window.confirm('Retirar esta recepcionista apenas deste evento?'))return;
+    setBusy(true);const {error}=await supabase.from('equipe_evento').delete().eq('id',id).eq('evento_id',eventId);
+    setBusy(false);if(error)setMessage('Não foi possível remover: '+error.message);else {setMessage('Recepcionista removida deste evento.');await loadAssigned();}
+  }
   function chooseSheet(items,index){
     setSheetIndex(index);const rows=items[index]?.data||[];let indexHeader=0;
     for(let i=0;i<Math.min(30,rows.length);i++)if(detect(rows[i]||[],nameKeys)>=0){indexHeader=i;break;}
@@ -62,6 +91,7 @@ export default function AdminEventos(){
     if(file.size>10*1024*1024){setMessage('O arquivo ultrapassa 10 MB.');return;}
     setBusy(true);
     try{const {default:readWorkbook}=await import('read-excel-file/browser');
+      // A versão 9.x exporta todas as abas em objetos {sheet,data}.
       const sheetsFound=(await readWorkbook(file)).filter(x=>Array.isArray(x.data)&&x.data.length);
       if(!sheetsFound.length)throw Error('A planilha está vazia.');
       const preferred=sheetsFound.findIndex(x=>['os convidados','lista de convidados','convidados'].includes(norm(x.sheet)));
@@ -101,6 +131,28 @@ export default function AdminEventos(){
         {form.date&&<p>Código do evento: <b>{dateCode(form.date)}</b></p>}
         <button disabled={busy} className="agenda-submit">Criar evento</button>
       </form></section>
+      <section className="agenda-admin"><h2>Equipe do evento</h2>
+        <p>Selecione o evento na seção de importação e vincule as recepcionistas autorizadas. A lista de convidados não ficará disponível para quem não pertence à equipe.</p>
+        <label>Evento<select value={eventId} onChange={e=>{setEventId(e.target.value);setSheets([]);}}><option value="">Selecione o evento</option>{events.map(e=><option key={e.id} value={e.id}>{e.nome} — {e.data_evento?.split('-').reverse().join('/')}</option>)}</select></label>
+        {!eventId?<p>Selecione um evento para gerenciar a equipe.</p>:<>
+          <form className="agenda-form" onSubmit={addStaff}>
+            <label>Recepcionista<select value={staffId} onChange={e=>setStaffId(e.target.value)} required>
+              <option value="">Selecione uma recepcionista</option>{staff.filter(r=>!assigned.some(a=>a.recepcionista_id===r.id)).map(r=><option key={r.id} value={r.id}>{r.nome}</option>)}
+            </select></label>
+            <button className="agenda-submit" disabled={busy||!staffId}>Vincular ao evento</button>
+          </form>
+          {assigned.map(a=><div key={a.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,margin:'10px 0'}}>
+            <span>{staff.find(r=>r.id===a.recepcionista_id)?.nome||'Recepcionista'}</span>
+            <button type="button" disabled={busy} onClick={()=>removeStaff(a.id)}>Retirar</button>
+          </div>)}
+        </>}
+        <details style={{marginTop:16}}><summary>Cadastrar nova recepcionista</summary>
+          <form className="agenda-form" onSubmit={addNewStaff}>
+            <label>Nome<input required maxLength={100} value={newStaff} onChange={e=>setNewStaff(e.target.value)}/></label>
+            <button className="agenda-submit" disabled={busy}>Cadastrar recepcionista</button>
+          </form>
+        </details>
+      </section>
       <section className="agenda-admin"><h2>Importar convidados</h2><p>Selecione o evento e confira os nomes e mesas antes de importar.</p><div className="agenda-form">
         <label>Evento<select value={eventId} onChange={e=>{setEventId(e.target.value);setSheets([]);}}><option value="">Selecione o evento</option>{events.map(e=><option value={e.id} key={e.id}>{e.nome} — {e.data_evento?.split('-').reverse().join('/')}</option>)}</select></label>
         {current&&<p><b>{current.nome}</b>: {guestCount} convidados cadastrados.</p>}
