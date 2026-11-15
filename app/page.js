@@ -46,6 +46,10 @@ export default function Home() {
   const [novaMesa, setNovaMesa] = useState('');
   const [recepcionista, setRecepcionista] = useState(RECEPCIONISTAS[0]);
   const [eventoId, setEventoId] = useState('');
+  const [eventoNome, setEventoNome] = useState('');
+  const [sessaoToken, setSessaoToken] = useState('');
+  const [equipeEvento, setEquipeEvento] = useState([]);
+  const [buscandoEvento, setBuscandoEvento] = useState(false);
   const [codigoEvento, setCodigoEvento] = useState('');
   const [acessoMensagem, setAcessoMensagem] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -64,19 +68,22 @@ export default function Home() {
     setFaixas(null);
     setMensagemFaixas('');
     if (!eventoId) return;
-    supabase.from('faixas_buffet').select('isento_ate,meia_ate')
-      .eq('evento_id', eventoId).maybeSingle().then(({data,error}) => {
+    const operacao = sessaoToken
+      ? supabase.rpc('consultar_faixas_recepcao',{p_token:sessaoToken})
+      : supabase.from('faixas_buffet').select('isento_ate,meia_ate').eq('evento_id', eventoId).maybeSingle();
+    operacao.then(({data,error}) => {
         if (!ativo) return;
         if (error) {
           setMensagemFaixas('Faixas ainda não disponíveis neste evento. Verifique a configuração no Supabase.');
-        } else if (data) {
-          setFaixas(data);
-          setLimiteIsento(String(data.isento_ate));
-          setLimiteMeia(String(data.meia_ate));
+        } else if (Array.isArray(data) ? data.length>0 : Boolean(data)) {
+          const faixa=Array.isArray(data)?data[0]:data;
+          setFaixas(faixa);
+          setLimiteIsento(String(faixa.isento_ate));
+          setLimiteMeia(String(faixa.meia_ate));
         }
       });
     return () => { ativo = false; };
-  }, [eventoId]);
+  }, [eventoId,sessaoToken]);
 
   async function guardarFaixas(e) {
     e.preventDefault();
@@ -88,7 +95,9 @@ export default function Home() {
     }
     setSalvandoFaixas(true);
     setMensagemFaixas('');
-    const {error} = await supabase.from('faixas_buffet').upsert({evento_id:eventoId, isento_ate:isento, meia_ate:meia}, {onConflict:'evento_id'});
+    const {error} = sessaoToken
+      ? await supabase.rpc('salvar_faixas_recepcao',{p_token:sessaoToken,p_isento_ate:isento,p_meia_ate:meia})
+      : await supabase.from('faixas_buffet').upsert({evento_id:eventoId, isento_ate:isento, meia_ate:meia}, {onConflict:'evento_id'});
     if (error) setMensagemFaixas(`Não foi possível salvar as faixas: ${error.message}`);
     else {
       setFaixas({isento_ate:isento, meia_ate:meia});
@@ -98,30 +107,63 @@ export default function Home() {
     setSalvandoFaixas(false);
   }
 
+  // Busca dinâmica por código: nenhum evento novo precisa de UUID incorporado ao código.
+  useEffect(() => {
+    const codigo = formatarDataEvento(codigoEvento.trim());
+    setEquipeEvento([]);
+    if (!dataValida(codigo) || eventoId) return;
+    const chave = codigo.replace(/\D/g, '');
+    let cancelado = false;
+    const consultar = async () => {
+      setBuscandoEvento(true);
+      const {data,error} = await supabase.rpc('buscar_evento_por_codigo',{p_codigo:chave});
+      if (cancelado) return;
+      if (!error && data?.length) {
+        const {data:pessoas,error:erroEquipe} = await supabase.rpc('listar_recepcionistas_evento',{p_evento_id:data[0].evento_id});
+        if (!cancelado && !erroEquipe) {
+          setEquipeEvento(pessoas||[]);
+          if (pessoas?.length) setRecepcionista(pessoas[0].nome);
+        }
+      }
+      if (!cancelado) setBuscandoEvento(false);
+    };
+    consultar();
+    return () => {cancelado=true;};
+  }, [codigoEvento, eventoId]);
+
   const idValido = UUID_RE.test(eventoId);
 
-  function entrar(evento) {
+  async function entrar(evento) {
     evento.preventDefault();
     const codigo = formatarDataEvento(codigoEvento.trim());
-    if (!dataValida(codigo)) {
-      setAcessoMensagem('Informe uma data válida com 8 números. Exemplo: 01112026.');
-      return;
+    if (!dataValida(codigo)) {setAcessoMensagem('Informe uma data válida com 8 números.');return;}
+    const codigoNumerico = codigo.replace(/\D/g,'');
+    setAcessoMensagem('Conferindo evento e equipe…');
+    // O evento histórico é mantido no modo legado, sem alterar check-ins existentes.
+    if (EVENTOS_TESTE[codigo]) {
+      if (!RECEPCIONISTAS.includes(recepcionista)) {setAcessoMensagem('Escolha uma recepcionista da equipe.');return;}
+      setSessaoToken('');setEventoNome('Allan & Luciana');setEventoId(EVENTOS_TESTE[codigo]);setAcessoMensagem('');return;
     }
-    if (!RECEPCIONISTAS.includes(recepcionista)) {
-      setAcessoMensagem('Escolha uma recepcionista da equipe.');
-      return;
-    }
-    const id = EVENTOS_TESTE[codigo];
-    if (!id) {
-      setAcessoMensagem('Código ainda não cadastrado nesta versão de teste. Para este teste, use 01/11/2026.');
-      return;
-    }
+    const {data:localizados,error:erroEvento}=await supabase.rpc('buscar_evento_por_codigo',{p_codigo:codigoNumerico});
+    if (erroEvento || !localizados?.length) {setAcessoMensagem('Evento não encontrado. Confira o código e a data cadastrada.');return;}
+    const encontrado=localizados[0];
+    const {data:equipe,error:erroEquipe}=await supabase.rpc('listar_recepcionistas_evento',{p_evento_id:encontrado.evento_id});
+    if (erroEquipe || !equipe?.length) {setAcessoMensagem('Nenhuma recepcionista foi vinculada a este evento pela administração.');return;}
+    const pessoa=equipe.find(r=>r.nome===recepcionista);
+    if(!pessoa){setAcessoMensagem('Selecione uma recepcionista autorizada para este evento.');return;}
+    const {data:sessoes,error:erroSessao}=await supabase.rpc('iniciar_sessao_recepcao',{
+      p_codigo:codigoNumerico,p_recepcionista_id:pessoa.recepcionista_id,p_dispositivo_id:null
+    });
+    if(erroSessao || !sessoes?.length){setAcessoMensagem('Não foi possível iniciar a recepção: '+(erroSessao?.message||'Sem sessão válida.'));return;}
+    setSessaoToken(sessoes[0].token);
+    setEventoNome(sessoes[0].evento_nome||encontrado.nome);
+    setEventoId(sessoes[0].evento_id);
     setAcessoMensagem('');
-    setEventoId(id);
   }
 
   function sair() {
     setEventoId('');
+    setSessaoToken('');setEventoNome('');
     setConvidados([]);
     setCheckins([]);
     setBusca('');
@@ -138,27 +180,24 @@ export default function Home() {
     if (!preservarErro) setErro('');
     setAviso('');
     try {
-      const [resultadoConvidados, resultadoCheckins] = await Promise.all([
-        supabase.from('convidados').select('*').eq('evento_id', id).order('nome'),
-        supabase.from('checkins').select('id,convidado_id').eq('evento_id', id)
-      ]);
-      if (resultadoConvidados.error) {
-        setErro(`Falha ao consultar convidados: ${resultadoConvidados.error.message}`);
-        setConvidados([]);
-        return;
+      if(sessaoToken){
+        const {data,error}=await supabase.rpc('listar_convidados_recepcao',{p_token:sessaoToken});
+        if(error){setErro('Não foi possível consultar a lista autorizada: '+error.message);setConvidados([]);setCheckins([]);return;}
+        const convidadosNovos=(data||[]).map(c=>({...c,id:c.convidado_id,idade:c.idade_crianca}));
+        setConvidados(convidadosNovos);
+        setCheckins(convidadosNovos.filter(c=>c.presente).map(c=>({convidado_id:c.id})));
+      } else {
+        const [resultadoConvidados, resultadoCheckins] = await Promise.all([
+          supabase.from('convidados').select('*').eq('evento_id', id).order('nome'),
+          supabase.from('checkins').select('id,convidado_id').eq('evento_id', id)
+        ]);
+        if (resultadoConvidados.error) {setErro('Falha ao consultar convidados: '+resultadoConvidados.error.message);setConvidados([]);return;}
+        if (resultadoCheckins.error) {setErro('Falha ao consultar presenças: '+resultadoCheckins.error.message);setConvidados(resultadoConvidados.data||[]);setCheckins([]);return;}
+        const dados=resultadoConvidados.data||[];
+        setConvidados(dados);setCheckins(resultadoCheckins.data||[]);
+        if(!dados.length)setAviso('Este evento ainda não possui convidados disponíveis.');
       }
-      if (resultadoCheckins.error) {
-        setErro(`Falha ao consultar presenças: ${resultadoCheckins.error.message}`);
-        setConvidados(resultadoConvidados.data || []);
-        setCheckins([]);
-        return;
-      }
-      const dados = resultadoConvidados.data || [];
-      setConvidados(dados);
-      setCheckins(resultadoCheckins.data || []);
-      if (dados.length === 0) {
-        setAviso('A consulta não retornou convidados. Como existem registros no Supabase, precisamos verificar a autorização de leitura (RLS) e a associação com este evento. Nenhum dado foi apagado.');
-      }
+
     } catch (e) {
       setErro(`Não foi possível acessar o Supabase: ${e?.message || 'erro de conexão'}`);
     } finally {
@@ -181,7 +220,9 @@ export default function Home() {
       .subscribe();
     carregar(eventoId);
     return () => { ativo = false; supabase.removeChannel(canal); };
-  }, [eventoId, idValido]);
+  }, [eventoId, idValido, sessaoToken]);
+
+  useEffect(()=>{if(!eventoId||!sessaoToken)return;const intervalo=setInterval(()=>carregar(eventoId,true),8000);return ()=>clearInterval(intervalo);},[eventoId,sessaoToken]);
 
   const presentesIds = useMemo(() => new Set(checkins.map(c => c.convidado_id)), [checkins]);
   const lista = convidados.filter(c => {
@@ -212,9 +253,13 @@ export default function Home() {
     setErro('');
     try {
       const presente = presentesIds.has(convidado.id);
-      const operacao = presente
-        ? supabase.from('checkins').delete().eq('evento_id', eventoId).eq('convidado_id', convidado.id)
-        : supabase.from('checkins').insert({ evento_id: eventoId, convidado_id: convidado.id });
+      const operacao = sessaoToken
+        ? (presente
+            ? supabase.rpc('desfazer_checkin_recepcao',{p_token:sessaoToken,p_convidado_id:convidado.id})
+            : supabase.rpc('registrar_checkin_recepcao',{p_token:sessaoToken,p_convidado_id:convidado.id,p_dispositivo_id:null}))
+        : (presente
+            ? supabase.from('checkins').delete().eq('evento_id', eventoId).eq('convidado_id', convidado.id)
+            : supabase.from('checkins').insert({ evento_id: eventoId, convidado_id: convidado.id }));
       const { error } = await operacao;
       if (error) {
         // Nao apagar este aviso ao atualizar a lista: ele informa a causa da falha.
@@ -223,12 +268,12 @@ export default function Home() {
       }
       await carregar(eventoId);
       // Confirmar pelo banco, sem declarar sucesso apenas por ter clicado.
-      const { data: confirmacao, error: erroConfirmacao } = await supabase
-        .from('checkins').select('id').eq('evento_id', eventoId)
-        .eq('convidado_id', convidado.id).limit(1);
+      const { data: confirmacao, error: erroConfirmacao } = sessaoToken
+        ? await supabase.rpc('listar_convidados_recepcao',{p_token:sessaoToken})
+        : await supabase.from('checkins').select('id').eq('evento_id', eventoId).eq('convidado_id', convidado.id).limit(1);
       if (erroConfirmacao) {
         setErro(`Não foi possível confirmar o check-in: ${erroConfirmacao.message}`);
-      } else if (Boolean(confirmacao?.length) === presente) {
+      } else if ((sessaoToken ? Boolean(confirmacao?.find(c=>c.convidado_id===convidado.id)?.presente) : Boolean(confirmacao?.length)) === presente) {
         setErro('O banco não confirmou a alteração da presença. Tente atualizar a página e confira o registro antes de tentar novamente.');
       }
     } catch (e) {
@@ -250,18 +295,16 @@ export default function Home() {
     setOcupado(true);
     setErro('');
     try {
-      const { data, error } = await supabase.from('convidados')
-        .update({ idade: Number(texto) })
-        .eq('evento_id', eventoId)
-        .eq('id', convidado.id)
-        .select('id,idade');
+      const { data, error } = sessaoToken
+        ? await supabase.rpc('atualizar_convidado_recepcao',{p_token:sessaoToken,p_convidado_id:convidado.id,p_idade:Number(texto)})
+        : await supabase.from('convidados').update({ idade: Number(texto) }).eq('evento_id', eventoId).eq('id', convidado.id).select('id,idade');
       if (error) {
         setErro(`Não foi possível salvar a idade: ${error.message}`);
-      } else if (!data?.length) {
+      } else if (!sessaoToken && !data?.length) {
         setErro('A idade não foi confirmada pelo banco. Verifique a permissão de atualização.');
       } else {
         // Confirmação persistida no banco, sem mexer no estado dos check-ins.
-        setConvidados(atual => atual.map(c => c.id === convidado.id ? {...c, idade: data[0].idade} : c));
+        setConvidados(atual => atual.map(c => c.id === convidado.id ? {...c, idade: sessaoToken ? Number(texto) : data[0].idade} : c));
       }
     } catch (e) {
       setErro(`Não foi possível atualizar a idade: ${e?.message || 'erro de conexão'}`);
@@ -287,18 +330,16 @@ export default function Home() {
     setErro('');
     try {
       // Grava somente a mesa: idade e presença permanecem intactas.
-      const { data, error } = await supabase.from('convidados')
-        .update({mesa: destino})
-        .eq('evento_id', eventoId)
-        .eq('id', convidado.id)
-        .select('id,mesa');
+      const { data, error } = sessaoToken
+        ? await supabase.rpc('atualizar_convidado_recepcao',{p_token:sessaoToken,p_convidado_id:convidado.id,p_mesa:destino})
+        : await supabase.from('convidados').update({mesa: destino}).eq('evento_id', eventoId).eq('id', convidado.id).select('id,mesa');
       if (error) {
         setErro(`Não foi possível alterar a mesa: ${error.message}`);
-      } else if (!data?.length) {
+      } else if (!sessaoToken && !data?.length) {
         setErro('O banco não confirmou a mudança de mesa. Verifique a permissão de atualização.');
       } else {
         setConvidados(atual => atual.map(c =>
-          c.id === convidado.id ? {...c, mesa: data[0].mesa} : c));
+          c.id === convidado.id ? {...c, mesa: sessaoToken ? destino : data[0].mesa} : c));
         setAlterandoMesaId(null);
       }
     } catch (e) {
@@ -314,7 +355,9 @@ export default function Home() {
     if (!nome?.trim()) return;
     const mesa = window.prompt('Mesa ou setor:') || 'A definir';
     setErro('');
-    const { error } = await supabase.from('convidados').insert({ evento_id: eventoId, nome: nome.trim(), mesa });
+    const { error } = sessaoToken
+      ? await supabase.rpc('incluir_convidado_recepcao',{p_token:sessaoToken,p_nome:nome.trim(),p_mesa:mesa})
+      : await supabase.from('convidados').insert({ evento_id: eventoId, nome: nome.trim(), mesa, extraordinario:true });
     if (error) setErro(`Não foi possível incluir o convidado: ${error.message}`);
     else await carregar(eventoId);
   }
@@ -336,25 +379,25 @@ export default function Home() {
             <div style={{display:'grid',gap:7}}>
               <label htmlFor="codigo-evento" style={{fontWeight:700,color:'var(--ameixa)'}}>Código do evento</label>
               <input id="codigo-evento" value={codigoEvento} onChange={e=>{setCodigoEvento(formatarDataEvento(e.target.value));setAcessoMensagem('');}} placeholder="DD/MM/AAAA" inputMode="numeric" maxLength={10} autoComplete="off" required />
-              <small style={{color:'var(--suave)'}}>Para o evento de teste: 01/11/2026</small>
+              <small style={{color:'var(--suave)'}}>Informe a data do evento no formato DD/MM/AAAA.</small>
             </div>
             <div style={{display:'grid',gap:7}}>
               <label htmlFor="recepcionista" style={{fontWeight:700,color:'var(--ameixa)'}}>Recepcionista</label>
               <select id="recepcionista" value={recepcionista} onChange={e=>setRecepcionista(e.target.value)}>
-                {RECEPCIONISTAS.map(nome=><option key={nome} value={nome}>{nome}</option>)}
+                {(dataValida(codigoEvento) && !EVENTOS_TESTE[codigoEvento] ? equipeEvento.map(r=>r.nome) : RECEPCIONISTAS).map(nome=><option key={nome} value={nome}>{nome}</option>)}
               </select>
             </div>
             {acessoMensagem && <p role="alert">{acessoMensagem}</p>}
-            <button type="submit" className="add">Entrar no evento</button>
+            <button type="submit" className="add" disabled={buscandoEvento}>Entrar no evento</button>
           </form>
-          <p style={{fontSize:12,color:'var(--suave)',textAlign:'center',lineHeight:1.5,marginTop:12}}>Versão de teste: a seleção do nome não autentica a recepcionista. A autorização segura dos dados continua pendente.</p>
+          <p style={{fontSize:12,color:'var(--suave)',textAlign:'center',lineHeight:1.5,marginTop:12}}>Somente recepcionistas vinculadas ao evento podem iniciar uma sessão. O evento histórico permanece em modo de teste.</p>
         </>
       ) : (
         <>
           <header>
             <div>
               <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}><span style={{display:"inline-flex",background:"white",borderRadius:"50%",padding:6,width:65,height:65,alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}><span aria-label="PM" style={{fontFamily:"Montserrat, sans-serif",fontSize:22,fontWeight:300,letterSpacing:2,color:"#713550"}}>PM</span></span><span className="eyebrow" style={{fontSize:11,letterSpacing:"1.3px",lineHeight:1.5}}>PATRÍCIA MATAVELLI CERIMONIAL</span></div>
-              <h1>{eventoId === EVENTOS_TESTE['01/11/2026'] ? 'Allan & Luciana' : 'Recepção de convidados'}</h1>
+              <h1>{eventoNome || 'Recepção de convidados'}</h1>
               <p>Evento {codigoEvento} · {recepcionista}</p>
             </div>
             <button onClick={sair} style={{border:'1px solid #f0d8e1',borderRadius:12,background:'transparent',color:'white',padding:'10px 13px',cursor:'pointer'}}>Trocar evento</button>
