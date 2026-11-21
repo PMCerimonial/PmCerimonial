@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { loadLocal, saveLocal, readQueue, saveQueue, readEventCache, saveEventCache, makePending, installOffline } from '../lib/pm-offline';
 import { supabase } from '../lib/supabase';
 
 // Imagens da marca original incorporadas para permitir atualizacao de um unico arquivo.
@@ -58,21 +57,8 @@ export default function Home() {
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [checkinsEmCurso, setCheckinsEmCurso] = useState({});
-  const [fila, setFila] = useState([]);
-  const [pendenciasCompartilhadas, setPendenciasCompartilhadas] = useState([]);
-  const [conectado, setConectado] = useState(true);
   const [restaurando, setRestaurando] = useState(true);
-  const filaRef = useRef([]);
-  const envioRef = useRef(new Set());
-  const sessaoRef = useRef('');
-  const eventoRef = useRef('');
-  const nomeRecepRef = useRef('');
-  const convidadoRef = useRef([]);
-  const checkinsRef = useRef([]);
-  const syncRef = useRef(false);
-  const filaProntaRef = useRef(false);
-  const filaWriteRef = useRef(Promise.resolve());
-  const reservadosRef = useRef(new Set());
+  const emCursoRef = useRef(new Set());
   const [faixas, setFaixas] = useState(null);
   const [editandoFaixas, setEditandoFaixas] = useState(false);
   const [limiteIsento, setLimiteIsento] = useState('');
@@ -81,150 +67,24 @@ export default function Home() {
   const [mensagemFaixas, setMensagemFaixas] = useState('');
 
   useEffect(() => {
-    installOffline();
-    const online = () => setConectado(navigator.onLine);
-    online();
-    window.addEventListener('online', online);
-    window.addEventListener('offline', online);
-    const saved = loadLocal('pm:event-session');
-    if (saved?.eventoId && UUID_RE.test(saved.eventoId) && saved.recepcionista && saved.codigoEvento) {
-      // A sessão no dispositivo é somente uma pista; o servidor revalida o token.
-      setEventoId(saved.eventoId);
-      setCodigoEvento(saved.codigoEvento);
-      setRecepcionista(saved.recepcionista);
-      setEventoNome(saved.eventoNome || 'Recepção de convidados');
-      setSessaoToken(saved.sessaoToken || '');
-      // A lista e a fila são recuperadas pelo efeito de abertura do evento.
-      // Nunca iniciar sincronização antes do IndexedDB terminar a leitura.
-    }
+    try {
+      const saved=JSON.parse(window.localStorage.getItem('pm:event-session')||'null');
+      if(saved && UUID_RE.test(saved.eventoId||'') && saved.sessaoToken && saved.codigoEvento && saved.recepcionista) {
+        // Revalidation on the server happens when the event list is fetched.
+        setEventoId(saved.eventoId);
+        setCodigoEvento(saved.codigoEvento);
+        setRecepcionista(saved.recepcionista);
+        setEventoNome(saved.eventoNome||'Recepção de convidados');
+        setSessaoToken(saved.sessaoToken);
+      }
+    } catch(e) { /* Private browsing or invalid saved data: manual login. */ }
     setRestaurando(false);
-    return () => {window.removeEventListener('online', online);window.removeEventListener('offline', online);};
   }, []);
 
   useEffect(() => {
-    let cancelado=false;
-    filaProntaRef.current=false;
-    filaRef.current=[];
-    setFila([]);
-    if(!UUID_RE.test(eventoId))return;
-    (async()=>{
-      try {
-        const [pending,cache]=await Promise.all([readQueue(eventoId),readEventCache(eventoId)]);
-        if(cancelado)return;
-        filaRef.current=pending;setFila(pending);
-        if(cache?.convidados?.length){
-          setConvidados(cache.convidados);
-          setCheckins(cache.checkins||[]);
-        }
-        filaProntaRef.current=true;
-        if(navigator.onLine && sessaoRef.current)void sincronizarFila();
-      }catch(e){if(!cancelado)setErro('Armazenamento offline indisponível: '+(e?.message||'Erro desconhecido')+'. Não registrar check-ins offline neste dispositivo.');}
-    })();
-    return()=>{cancelado=true;filaProntaRef.current=false;};
-  },[eventoId]);
-
-  useEffect(() => {
-    eventoRef.current = eventoId;
-    sessaoRef.current = sessaoToken;
-    nomeRecepRef.current = recepcionista;
-    if(eventoId && UUID_RE.test(eventoId)) {
-      saveLocal('pm:event-session',{eventoId,codigoEvento,recepcionista,eventoNome,sessaoToken});
-    }
-  },[eventoId,codigoEvento,recepcionista,eventoNome,sessaoToken]);
-
-  useEffect(()=>{convidadoRef.current=convidados;checkinsRef.current=checkins;},[convidados,checkins]);
-
-  async function carregarPendenciasCompartilhadas() {
-    if (!sessaoRef.current || !navigator.onLine) return;
-    const {data,error}=await supabase.rpc('listar_pendencias_recepcao',{p_token:sessaoRef.current});
-    if(!error) setPendenciasCompartilhadas(data||[]);
-  }
-
-  async function informarPendenciaRemota(item,status,detalhe='') {
-    if (!sessaoRef.current || !navigator.onLine) return;
-    try { await supabase.rpc('registrar_pendencia_recepcao',{
-      p_token:sessaoRef.current,p_id:item.id,p_convidado_id:item.convidadoId,
-      p_acao:item.desejado?'marcar':'desfazer',p_estado:status,p_detalhe:detalhe
-    }); } catch(e) {} // Nunca perder o registro local por falha no painel remoto.
-  }
-
-  function atualizarFila(itemsOrUpdater) {
-    const id=eventoRef.current;
-    if (!id || !filaProntaRef.current) return Promise.resolve(false);
-    const run = async () => {
-      if(id!==eventoRef.current || !filaProntaRef.current) return false;
-      const items=typeof itemsOrUpdater==='function' ? itemsOrUpdater(filaRef.current) : itemsOrUpdater;
-      try {
-        await saveQueue(id,items);
-        if(id!==eventoRef.current) return false;
-        filaRef.current=items;
-        setFila([...items]);
-        return true;
-      } catch(e) {
-        setErro('Falha ao gravar operação no aparelho: '+(e?.message||'erro')+'. Não liberar convidado sem conferência.');
-        return false;
-      }
-    };
-    const outcome=filaWriteRef.current.catch(()=>{}).then(run);
-    filaWriteRef.current=outcome;
-    return outcome;
-  }
-
-  async function verificarNoServidor(item) {
-    const token = sessaoRef.current;
-    if (!token) return null;
-    const {data,error}=await supabase.rpc('listar_convidados_recepcao',{p_token:token});
-    if(error) throw error;
-    const localizado=(data||[]).find(c=>c.convidado_id===item.convidadoId);
-    if(!localizado) throw new Error('Convidado não encontrado na consulta; conferir evento e sessão.');
-    return Boolean(localizado.presente);
-  }
-
-  async function sincronizarFila() {
-    if(syncRef.current || !filaProntaRef.current || !navigator.onLine || !sessaoRef.current || !eventoRef.current) return;
-    syncRef.current=true;
-    try {
-      for(const item of [...filaRef.current]) {
-        if(item.eventoId !== eventoRef.current || envioRef.current.has(item.id) || item.status==='conflito' || item.status==='erro') continue;
-        envioRef.current.add(item.id);
-        if(!await atualizarFila(current=>current.map(p=>p.id===item.id?{...p,status:'processando'}:p))) {envioRef.current.delete(item.id);break;}
-        await informarPendenciaRemota(item,'processando');
-        try {
-          // Verificação prévia necessária para tentativas de confirmação incerta.
-          const atual = await verificarNoServidor(item);
-          if(atual === null) throw new Error('Sessão indisponível');
-          if(atual !== item.desejado) {
-            if(item.desejado) {
-              const {error}=await supabase.rpc('registrar_checkin_recepcao',{p_token:sessaoRef.current,p_convidado_id:item.convidadoId,p_dispositivo_id:null});
-              if(error) throw error;
-            } else {
-              // Não desfazer automaticamente um registro que pode ter mudado em outro aparelho durante a falta de rede.
-              if(!item.criadoOffline) {
-                const {error}=await supabase.rpc('desfazer_checkin_recepcao',{p_token:sessaoRef.current,p_convidado_id:item.convidadoId});
-                if(error) throw error;
-              } else {
-              await atualizarFila(current=>current.map(p=>p.id===item.id?{...p,status:'conflito',erro:'Revisar retirada de presença com a equipe.'}:p));
-              void informarPendenciaRemota(item,'conflito','Revisar retirada de presença com a equipe.');
-              continue;
-              }
-            }
-          }
-          const confirmado=await verificarNoServidor(item);
-          if(confirmado !== item.desejado) throw new Error('Servidor ainda não confirmou o registro');
-          await atualizarFila(current=>current.filter(p=>p.id!==item.id));
-          await informarPendenciaRemota(item,'confirmado');
-          setCheckins(atual=>item.desejado?(atual.some(c=>c.convidado_id===item.convidadoId)?atual:[...atual,{convidado_id:item.convidadoId}]):atual.filter(c=>c.convidado_id!==item.convidadoId));
-        } catch(e) {
-          await atualizarFila(current=>current.map(p=>p.id===item.id?{...p,status:'erro',erro:e?.message||'Falha de sincronização'}:p));
-          await informarPendenciaRemota(item,'erro',e?.message||'Falha de sincronização');
-        } finally {envioRef.current.delete(item.id);}
-      }
-    } finally {syncRef.current=false;}
-  }
-
-  useEffect(()=>{if(conectado && sessaoToken && eventoId) {sincronizarFila();carregarPendenciasCompartilhadas();}},[conectado,sessaoToken,eventoId]);
-  useEffect(()=>{if(!eventoId||!sessaoToken||!conectado)return;const timer=setInterval(carregarPendenciasCompartilhadas,10000);return ()=>clearInterval(timer);},[eventoId,sessaoToken,conectado]);
-  useEffect(()=>{if(!eventoId||!conectado||!sessaoToken)return;const timer=setInterval(()=>{if(filaProntaRef.current && filaRef.current.some(x=>x.status==='processando'||x.status==='aguardando')) void sincronizarFila();},5000);return ()=>clearInterval(timer);},[eventoId,conectado,sessaoToken]);
+    if(!UUID_RE.test(eventoId) || !sessaoToken)return;
+    try {window.localStorage.setItem('pm:event-session',JSON.stringify({eventoId,codigoEvento,recepcionista,eventoNome,sessaoToken}));} catch(e) {}
+  }, [eventoId,codigoEvento,recepcionista,eventoNome,sessaoToken]);
 
   useEffect(() => {
     let ativo=true;
@@ -287,7 +147,6 @@ export default function Home() {
     return () => {cancelado=true;};
   }, [codigoEvento, eventoId]);
 
-  
   async function entrar(evento) {
     evento.preventDefault();
     const codigo = formatarDataEvento(codigoEvento.trim());
@@ -317,9 +176,7 @@ export default function Home() {
   }
 
   function sair() {
-    if(filaRef.current.length && !window.confirm('Existem check-ins pendentes neste aparelho. Eles continuarão salvos, mas precisam de sincronização. Deseja trocar de evento?')) return;
     try{localStorage.removeItem('pm:event-session');}catch(e){}
-    filaRef.current=[];setFila([]);setPendenciasCompartilhadas([]);
     setEventoId('');
     setSessaoToken('');setEventoNome('');
     setConvidados([]);
@@ -334,29 +191,28 @@ export default function Home() {
 
   async function carregar(id, preservarErro = false) {
     if (!UUID_RE.test(id)) return;
-    if(typeof navigator!=='undefined' && !navigator.onLine) return;
+    if(typeof navigator!=='undefined' && !navigator.onLine) {setErro('Sem internet. Check-ins não serão enviados até a conexão retornar.');return;}
     setCarregando(true);
     if (!preservarErro) setErro('');
     setAviso('');
     try {
       if(sessaoToken){
         const {data,error}=await supabase.rpc('listar_convidados_recepcao',{p_token:sessaoToken});
-        if(error){setErro('Não foi possível consultar a lista autorizada: '+error.message+' — exibindo dados do último carregamento, se disponíveis.');return;}
+        if(error){setErro('Não foi possível consultar a lista autorizada: '+error.message+'.');return;}
         const convidadosNovos=(data||[]).map(c=>({...c,id:c.convidado_id,idade:c.idade_crianca}));
+        if(!convidadosNovos.length) setAviso('Lista vazia ou sessão expirada. Se havia convidados, toque em Trocar evento para renovar o acesso.');
         setConvidados(convidadosNovos);
         const presencas=convidadosNovos.filter(c=>c.presente).map(c=>({convidado_id:c.id}));
         setCheckins(presencas);
-        try {await saveEventCache(id,{convidados:convidadosNovos,checkins:presencas,atualizadoEm:Date.now()});} catch(e) {setAviso('Lista consultada, mas não foi possível guardá-la offline.');}
       } else {
         const [resultadoConvidados, resultadoCheckins] = await Promise.all([
           supabase.from('convidados').select('*').eq('evento_id', id).order('nome'),
           supabase.from('checkins').select('id,convidado_id').eq('evento_id', id)
         ]);
-        if (resultadoConvidados.error) {setErro('Falha ao consultar convidados: '+resultadoConvidados.error.message+' — mantendo a última lista carregada.');return;}
+        if (resultadoConvidados.error) {setErro('Falha ao consultar convidados: '+resultadoConvidados.error.message+'.');return;}
         if (resultadoCheckins.error) {setErro('Falha ao consultar presenças: '+resultadoCheckins.error.message+' — mantendo os números da última confirmação.');return;}
         const dados=resultadoConvidados.data||[];
         setConvidados(dados);setCheckins(resultadoCheckins.data||[]);
-        try {await saveEventCache(id,{convidados:dados,checkins:resultadoCheckins.data||[],atualizadoEm:Date.now()});} catch(e) {setAviso('Lista consultada, mas não foi possível guardá-la offline.');}
         if(!dados.length)setAviso('Este evento ainda não possui convidados disponíveis.');
       }
     } catch (e) {
@@ -405,33 +261,37 @@ export default function Home() {
 
 
   async function check(convidado) {
-    if(!sessaoToken){setErro('Evento histórico: check-ins continuam disponíveis na versão publicada. Esta versão candidata exige sessão autorizada.');return;}
-    if (!idValido || !filaProntaRef.current || reservadosRef.current.has(convidado.id) || checkinsEmCurso[convidado.id] || filaRef.current.some(p=>p.convidadoId===convidado.id)) return;
-    reservadosRef.current.add(convidado.id);
-    setCheckinsEmCurso(v=>({...v,[convidado.id]:true}));
+    if (!idValido || emCursoRef.current.has(convidado.id)) return;
+    if(typeof navigator!=='undefined' && !navigator.onLine) {setErro('Sem internet. Não foi possível confirmar a presença.');return;}
+    // Lock only this guest: the next guest remains searchable and clickable.
+    emCursoRef.current.add(convidado.id);
+    setCheckinsEmCurso(prev=>({...prev,[convidado.id]:true}));
     setErro('');
     const presente=presentesIds.has(convidado.id);
-    let novo;
-    try {novo=makePending({eventoId,convidadoId:convidado.id,nome:convidado.nome,mesa:convidado.mesa,recepcionista,desejado:!presente});}
-    catch(e){reservadosRef.current.delete(convidado.id);setCheckinsEmCurso(v=>{const x={...v};delete x[convidado.id];return x;});setErro(e.message);return;}
-    novo.criadoOffline=!navigator.onLine;
-    if(novo.criadoOffline && presente) {
-      setErro('Desfazer presença offline exige conferência manual ao reconectar. Não alteramos a presença confirmada.');
-      reservadosRef.current.delete(convidado.id);
-      setCheckinsEmCurso(v=>{const x={...v};delete x[convidado.id];return x;});
-      return;
-    }
-    if(!await atualizarFila(current=>[...current,novo])) {
-      reservadosRef.current.delete(convidado.id);
-      setCheckinsEmCurso(v=>{const x={...v};delete x[convidado.id];return x;});
-      return;
-    }
-    reservadosRef.current.delete(convidado.id);
-    // A pesquisa é liberada imediatamente; a contagem continua baseada no servidor.
+    // Free the search before awaiting network confirmation.
     setBusca('');
-    if(!navigator.onLine){setCheckinsEmCurso(v=>{const x={...v};delete x[convidado.id];return x;});return;}
-    try { await sincronizarFila(); }
-    finally {setCheckinsEmCurso(v=>{const x={...v};delete x[convidado.id];return x;}); }
+    try {
+      const operacao=sessaoToken
+        ? (presente
+           ? supabase.rpc('desfazer_checkin_recepcao',{p_token:sessaoToken,p_convidado_id:convidado.id})
+           : supabase.rpc('registrar_checkin_recepcao',{p_token:sessaoToken,p_convidado_id:convidado.id,p_dispositivo_id:null}))
+        : (presente
+           ? supabase.from('checkins').delete().eq('evento_id',eventoId).eq('convidado_id',convidado.id)
+           : supabase.from('checkins').insert({evento_id:eventoId,convidado_id:convidado.id}));
+      const {error}=await operacao;
+      if(error) throw error;
+      // The write succeeded on the server. Never count a click as confirmation.
+      setCheckins(current=>presente
+        ? current.filter(c=>c.convidado_id!==convidado.id)
+        : current.some(c=>c.convidado_id===convidado.id)?current:[...current,{convidado_id:convidado.id}]);
+      // Fetch canonical shared state; the UI stays usable during refresh.
+      void carregar(eventoId,true);
+    } catch(e) {
+      setErro('Não foi possível confirmar a alteração de presença de '+convidado.nome+': '+(e?.message||'erro de conexão')+'. Confira o registro antes de tentar novamente.');
+    } finally {
+      emCursoRef.current.delete(convidado.id);
+      setCheckinsEmCurso(prev=>{const next={...prev};delete next[convidado.id];return next;});
+    }
   }
 
   async function confirmarIdade(convidado) {
@@ -534,10 +394,7 @@ export default function Home() {
           </header>
           {erro && <p role="alert">{erro}</p>}
           {aviso && !carregando && <p role="status" style={{padding:'14px',background:'#fff6ee',border:'1px solid #e7d4bf',borderRadius:'12px',color:'#6b4939'}}>{aviso}</p>}
-           <div role="status" style={{margin:'10px 0',color:conectado?'#427252':'#9b5b23',fontSize:13,fontWeight:700}}>
-             {conectado?'● Rede disponível · presença conforme última resposta confirmada':'● Sem rede · presença conforme última sincronização'}
-             {fila.length>0?` · ${fila.length} operação(ões) pendente(s)`:''}
-           </div>
+           <p role="status" style={{margin:'10px 0',color:'#427252',fontSize:13,fontWeight:700}}>Presenças confirmadas pelo servidor · pesquisa livre durante cada check-in</p>
            <section className="stats">
             <div><b>{convidados.length}</b><span>Convidados</span></div>
             <div><b>{presentes}</b><span>Presentes</span></div>
@@ -548,7 +405,7 @@ export default function Home() {
             <strong style={{fontSize:28,color:'var(--vinho)'}}>{criancasPresentes}</strong>
           </section>
           <nav aria-label="Abas do evento" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:5,margin:'12px 0 18px'}}>
-            {[['todos','Todos'],['presentes','Presentes'],['pendentes','Pendentes'],['mesas','Mesas'],['buffet','Buffet'],['falhas','Pendências']].map(([valor, texto]) => (
+            {[['todos','Todos'],['presentes','Presentes'],['pendentes','Pendentes'],['mesas','Mesas'],['buffet','Buffet']].map(([valor, texto]) => (
               <button key={valor} type="button" className={filtro === valor ? 'active' : ''}
                 onClick={() => {setFiltro(valor);setBusca('');setAlterandoMesaId(null);}}
                 style={{padding:'11px 3px',fontSize:12,minWidth:0,whiteSpace:'nowrap'}}>
@@ -556,27 +413,7 @@ export default function Home() {
               </button>
             ))}
           </nav>
-           {filtro === 'falhas' ? (
-             <section style={{background:'white',border:'1px solid var(--borda)',borderRadius:16,padding:16}}>
-               <h2 style={{color:'var(--vinho)'}}>Pendências de check-in</h2>
-               <p style={{fontSize:13,color:'var(--suave)'}}>Pendências locais e, quando o painel compartilhado estiver instalado, também registros das outras recepcionistas. Operações offline de outros aparelhos aparecem apenas após reconexão.</p>
-               {pendenciasCompartilhadas.filter(p=>!fila.some(l=>l.id===p.id)).map(p=>(
-                 <article key={p.id} style={{padding:12,marginBottom:9,border:'1px solid #e8d7de',borderRadius:12}}>
-                   <strong>{p.nome}</strong><div>{apresentarMesa(p.mesa)} · {p.recepcionista}</div>
-                   <small>{p.estado} · {new Date(p.criado_em).toLocaleString('pt-BR')}</small>
-                   {p.detalhe&&<p style={{fontSize:12,color:'#9b3333'}}>{p.detalhe}</p>}
-                 </article>
-               ))}
-               {fila.length===0 && pendenciasCompartilhadas.length===0?<p>Nenhuma pendência.</p>:fila.map(p=>(
-                 <article key={p.id} style={{padding:12,marginBottom:9,border:'1px solid #e8d7de',borderRadius:12}}>
-                   <strong>{p.nome}</strong><div>{apresentarMesa(p.mesa)} · {p.recepcionista}</div>
-                   <small>{new Date(p.criadoEm).toLocaleString('pt-BR')} · {p.status==='conflito'?'Requer conferência':p.status==='erro'?'Falha / verificar':conectado?'Processando':'Aguardando conexão'}</small>
-                   {p.erro&&<p role="alert" style={{fontSize:12,color:'#9b3333'}}>{p.erro}</p>}
-                   <button type="button" style={{marginTop:8}} onClick={async ()=>{if(p.status==='erro'){const ok=await atualizarFila(current=>current.map(q=>q.id===p.id?{...q,status:'aguardando',erro:''}:q));if(!ok)return;}await sincronizarFila();}} disabled={!conectado||p.status==='conflito'}>{p.status==='conflito'?'Resolver com a equipe':'Verificar / sincronizar'}</button>
-                 </article>
-               ))}
-             </section>
-           ) : filtro === 'buffet' ? (
+           {filtro === 'buffet' ? (
           <section style={{background:'#fff',border:'1px solid var(--borda)',borderRadius:16,padding:'15px 18px',marginBottom:16}} aria-label="Faixas etárias do buffet">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
               <strong style={{color:'var(--ameixa)'}}>Crianças • buffet</strong>
@@ -638,8 +475,8 @@ export default function Home() {
                         <p>{apresentarMesa(c.mesa)}{ehCrianca(c) ? ` · Criança · ${c.idade} anos` : ''}</p>
                       </div>
                       <div style={{display:'grid',gap:8,width:'100%'}}>
-                        <button disabled={Boolean(checkinsEmCurso[c.id]) || fila.some(p=>p.convidadoId===c.id)} onClick={() => check(c)}>
-                          {fila.some(p=>p.convidadoId===c.id) ? 'Aguardando confirmação' : presente ? '✓ Presente' : 'Fazer check-in'}
+                        <button disabled={Boolean(checkinsEmCurso[c.id])} onClick={() => check(c)}>
+                          {checkinsEmCurso[c.id] ? 'Confirmando...' : presente ? '✓ Presente' : 'Fazer check-in'}
                         </button>
                         <button type="button" disabled={ocupado || carregando}
                           onClick={() => confirmarIdade(c)}
@@ -678,7 +515,7 @@ export default function Home() {
           )}
         </>
       )}
-      <footer>Patrícia Matavelli Cerimonial · Versão de teste · Acesso seguro em desenvolvimento</footer>
+      <footer>Patrícia Matavelli Cerimonial · Recepção com check-in ágil</footer>
     </main>
   );
 }
