@@ -287,7 +287,7 @@ export default function Home() {
     return () => {cancelado=true;};
   }, [codigoEvento, eventoId]);
 
-  const idValido = UUID_RE.test(eventoId);
+  
   async function entrar(evento) {
     evento.preventDefault();
     const codigo = formatarDataEvento(codigoEvento.trim());
